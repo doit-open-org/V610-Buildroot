@@ -1,0 +1,24 @@
+drm: add DRM_EXTERNAL_MIPI_DBI for out-of-tree SPI LCD modules
+
+A user-selectable option that pulls in the MIPI-DBI and CMA helpers, so
+that SPI panel drivers built as external modules (lcd-driver) find
+them in the kernel.
+
+--- a/drivers/gpu/drm/Kconfig
++++ b/drivers/gpu/drm/Kconfig
+@@ -32,6 +32,15 @@
+ 	depends on DRM
+ 	select DRM_KMS_HELPER
+ 
++config DRM_EXTERNAL_MIPI_DBI
++	bool "MIPI-DBI helpers for external SPI LCD modules"
++	depends on DRM && SPI
++	select DRM_MIPI_DBI
++	select DRM_KMS_CMA_HELPER
++	help
++	  Enable the DRM helpers required by SPI LCD drivers that are built as
++	  external kernel modules. This does not enable an in-tree panel driver.
++
+ config DRM_MIPI_DSI
+ 	bool
+ 	depends on DRM

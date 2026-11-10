@@ -1,0 +1,199 @@
+#!/bin/sh
+set -eu
+
+ACTION="${1:-start}"
+SDIO_DRIVER=/sys/bus/platform/drivers/sdhci_nebula
+SDIO_DEVICE=10030000.SDIO
+AIC8800D_LOG_MASK=${AIC8800D_LOG_MASK:-1}
+AIC_FIRMWARE=/lib/firmware/aic8800/fmacfw_8800d80_h_u02.bin
+PID_FILE=/var/run/wireless.pid
+READY_FILE=/var/run/wireless.ready
+FAILED_FILE=/var/run/wireless.failed
+LOG_FILE=/tmp/wireless.log
+
+if [ -f /drv/ko/extdrv/bluetooth.ko ]; then
+    AIC_FIRMWARE=/lib/firmware/aic8800/fmacfwbt_8800d80_h_u02.bin
+fi
+
+aic_sdio_present()
+{
+    for modalias in /sys/bus/sdio/devices/*/modalias; do
+        [ -f "$modalias" ] || continue
+        if grep -qi 'vC8A1' "$modalias"; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+module_loaded()
+{
+    lsmod | awk '{print $1}' | grep -qx "$1"
+}
+
+configure_sdio0_pinmux()
+{
+    bspmm 0x1026002c 0x000011f1 >/dev/null # D1
+    bspmm 0x10260030 0x000011e1 >/dev/null # D0
+    bspmm 0x10260034 0x000012c1 >/dev/null # CLK
+    bspmm 0x10260038 0x000011e1 >/dev/null # CMD
+    bspmm 0x1026003c 0x000011f1 >/dev/null # D3
+    bspmm 0x10260040 0x000011f1 >/dev/null # D2
+    bspmm 0x10260028 0x00001100 >/dev/null # Unconnected card detect
+}
+
+check_firmware()
+{
+    for file in /lib/firmware/aic8800/fw_adid_8800d80_u02.bin \
+        /lib/firmware/aic8800/fw_patch_8800d80_u02.bin \
+        /lib/firmware/aic8800/fw_patch_8800d80_u02_ext0.bin \
+        /lib/firmware/aic8800/fw_patch_8800d80_u02_ext1.bin \
+        /lib/firmware/aic8800/fw_patch_table_8800d80_u02.bin \
+        "$AIC_FIRMWARE" \
+        /lib/firmware/aic8800/aic_userconfig_8800d80.txt \
+        /lib/firmware/aic8800/aic_powerlimit_8800d80.txt; do
+        if [ ! -f "$file" ]; then
+            echo "[wireless] error: missing $file" >&2
+            return 1
+        fi
+    done
+}
+
+detect_device()
+{
+    if aic_sdio_present; then
+        return 0
+    fi
+    if [ ! -d "$SDIO_DRIVER" ] || [ ! -e "/sys/bus/platform/devices/$SDIO_DEVICE" ]; then
+        echo "[wireless] error: SDIO0 controller is unavailable" >&2
+        return 1
+    fi
+    if [ -L "$SDIO_DRIVER/$SDIO_DEVICE" ]; then
+        echo "$SDIO_DEVICE" > "$SDIO_DRIVER/unbind"
+    fi
+    echo "$SDIO_DEVICE" > "$SDIO_DRIVER/bind"
+    # The host pinctrl state restores the unconnected card-detect function.
+    configure_sdio0_pinmux
+    for _ in 1 2 3 4 5; do
+        aic_sdio_present && return 0
+        sleep 1
+    done
+    echo "[wireless] error: AIC8800D80 was not detected on SDIO0" >&2
+    return 1
+}
+
+load_module()
+{
+    module="$1"
+    shift
+    if module_loaded "$module"; then
+        echo "[wireless] ${module}.ko already loaded"
+        return 0
+    fi
+    if ! insmod "/drv/ko/extdrv/${module}.ko" "$@"; then
+        echo "[wireless] error: failed to load ${module}.ko" >&2
+        return 1
+    fi
+}
+
+start_wireless()
+{
+    if ! command -v bspmm >/dev/null 2>&1; then
+        echo "[wireless] error: bspmm is unavailable" >&2
+        return 1
+    fi
+
+    configure_sdio0_pinmux || return 1
+    check_firmware || return 1
+    detect_device || return 1
+
+    if [ -f /drv/ko/extdrv/bluetooth.ko ]; then
+        load_module ecc || return 1
+        load_module ecdh_generic || return 1
+        load_module bluetooth || return 1
+    fi
+    load_module aic8800_bsp || return 1
+    load_module aic8800_fdrv "aicwf_dbg_level=$AIC8800D_LOG_MASK" || return 1
+
+    for _ in 1 2 3 4 5; do
+        if ifconfig wlan0 up 2>/dev/null; then
+            echo "[wireless] wlan0 ready"
+            return 0
+        fi
+        sleep 1
+    done
+    echo "[wireless] error: wlan0 not found" >&2
+    return 1
+}
+
+status_wireless()
+{
+    if module_loaded aic8800_bsp && module_loaded aic8800_fdrv \
+        && ifconfig wlan0 >/dev/null 2>&1; then
+        echo "[wireless] ready"
+        return 0
+    fi
+
+    if [ -s "$PID_FILE" ]; then
+        pid="$(cat "$PID_FILE" 2>/dev/null || true)"
+        case "$pid" in
+            *[!0-9]*|'') ;;
+            *)
+                if kill -0 "$pid" 2>/dev/null; then
+                    echo "[wireless] starting (pid $pid, log $LOG_FILE)"
+                    return 0
+                fi
+                ;;
+        esac
+    fi
+    if [ -f "$FAILED_FILE" ]; then
+        echo "[wireless] failed (log $LOG_FILE)"
+        return 1
+    fi
+    echo "[wireless] stopped"
+    return 1
+}
+
+run_wireless()
+{
+    trap 'rm -f "$PID_FILE"' EXIT
+    if start_wireless; then
+        : > "$READY_FILE"
+        rm -f "$FAILED_FILE"
+        return 0
+    else
+        result=$?
+    fi
+
+    echo "$result" > "$FAILED_FILE"
+    rm -f "$READY_FILE"
+    return "$result"
+}
+
+start_wireless_async()
+{
+    mkdir -p /var/run
+    if status_wireless >/dev/null 2>&1; then
+        status_wireless
+        return 0
+    fi
+
+    rm -f "$PID_FILE" "$READY_FILE" "$FAILED_FILE"
+    : > "$LOG_FILE"
+    run_wireless </dev/null >>"$LOG_FILE" 2>&1 &
+    pid=$!
+    echo "$pid" > "$PID_FILE"
+}
+
+case "$ACTION" in
+    start)
+        start_wireless_async
+        ;;
+    status)
+        status_wireless
+        ;;
+    *)
+        echo "Usage: $0 {start|status}" >&2
+        exit 2
+        ;;
+esac

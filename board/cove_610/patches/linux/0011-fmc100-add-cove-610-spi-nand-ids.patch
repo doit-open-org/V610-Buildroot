@@ -1,0 +1,139 @@
+linux: fmc100: add the Cove-610 SPI NAND parts
+
+Add Winbond W25N512GV and GigaDevice GD5F05M7UE, the SPI NAND devices
+fitted on the Cove-610, to the FMC100 ID table. The target file uses CRLF
+line endings; the hunks keep them.
+
+--- a/drivers/mtd/nand/fmc100/fmc_ids_hi3516cv610.c
++++ b/drivers/mtd/nand/fmc100/fmc_ids_hi3516cv610.c
+@@ -5,12 +5,19 @@
+ #include <linux/mfd/bsp_fmc.h>
+ #include <linux/mtd/fmc100.h>
+ 
++set_read_std(1, INFINITE, 24);
++set_read_fast(1, INFINITE, 104);
++set_read_dual(1, INFINITE, 104);
+ set_read_quad(1, INFINITE, 100);
++set_read_quad(1, INFINITE, 104);
+ set_read_quad_addr(1, INFINITE, 100);
+ 
++set_write_std(0, 256, 80);
+ set_write_quad(0, 256, 100);
++set_write_quad(0, 256, 104);
+ 
+ set_erase_sector_128k(0, _128K, 100);
++set_erase_sector_128k(0, _128K, 104);
+ 
+ static struct spi_drv spi_driver_general = {
+ 	.wait_ready = spi_general_wait_ready,
+@@ -18,6 +25,44 @@
+ 	.qe_enable = spi_general_qe_enable,
+ };
+ 
++#define WINBOND_CFG_BUF_READ	(1U << 3)
++
++static int spi_winbond_configure(struct fmc_spi *spi)
++{
++	u_char reg;
++	int ret;
++
++	ret = spi_nand_feature_op(spi, GET_OP, FEATURE_ADDR, &reg);
++	if (ret)
++		return ret;
++
++	if (reg & WINBOND_CFG_BUF_READ)
++		return 0;
++
++	reg |= WINBOND_CFG_BUF_READ;
++	ret = spi_nand_feature_op(spi, SET_OP, FEATURE_ADDR, &reg);
++	if (ret)
++		return ret;
++
++	spi_general_wait_ready(spi);
++	ret = spi_nand_feature_op(spi, GET_OP, FEATURE_ADDR, &reg);
++	if (ret)
++		return ret;
++
++	if (!(reg & WINBOND_CFG_BUF_READ)) {
++		pr_err("Winbond buffer read mode enable failed\n");
++		return -1;
++	}
++
++	return 0;
++}
++
++static struct spi_drv spi_driver_winbond = {
++	.wait_ready = spi_general_wait_ready,
++	.write_enable = spi_general_write_enable,
++	.qe_enable = spi_winbond_configure,
++};
++
+ /* some spi nand flash default QUAD enable, needn't to set qe enable */
+ __maybe_unused static struct spi_drv spi_driver_no_qe = {
+ 	.wait_ready = spi_general_wait_ready,
+@@ -76,6 +121,65 @@
+ 			0
+ 		},
+ 		.driver    = &spi_driver_general,
++	},
++
++
++	/* Winbond 3.3V W25N512GV 512Mbit */
++	{
++		.name      = "W25N512GV",
++		.id        = {0xef, 0xaa, 0x20},
++		.id_len    = 3,
++		.chipsize  = _64M,
++		.erasesize = _128K,
++		.pagesize  = _2K,
++		.oobsize   = 64,
++		.badblock_pos = BBP_FIRST_PAGE,
++		.read      = {
++			&read_std(1, INFINITE, 24),
++			&read_fast(1, INFINITE, 104),
++			&read_dual(1, INFINITE, 104),
++			&read_quad(1, INFINITE, 104),
++			0
++		},
++		.write     = {
++			&write_std(0, 256, 80),
++			&write_quad(0, 256, 104),
++			0
++		},
++		.erase     = {
++			&erase_sector_128k(0, _128K, 104),
++			0
++		},
++		.driver    = &spi_driver_winbond,
++	},
++
++	/* GigaDevice 3.3V GD5F05M7UE 512Mbit */
++	{
++		.name      = "GD5F05M7UE",
++		.id        = {0xc8, 0x90},
++		.id_len    = 2,
++		.chipsize  = _64M,
++		.erasesize = _128K,
++		.pagesize  = _2K,
++		.oobsize   = 64,
++		.badblock_pos = BBP_FIRST_PAGE,
++		.read      = {
++			&read_std(1, INFINITE, 24),
++			&read_fast(1, INFINITE, 104),
++			&read_dual(1, INFINITE, 104),
++			&read_quad(1, INFINITE, 104),
++			0
++		},
++		.write     = {
++			&write_std(0, 256, 80),
++			&write_quad(0, 256, 104),
++			0
++		},
++		.erase     = {
++			&erase_sector_128k(0, _128K, 104),
++			0
++		},
++		.driver    = &spi_driver_general,
+ 	},
+ 
+ 	{   .id_len    = 0, },

@@ -1,0 +1,25 @@
+// SPDX-License-Identifier: GPL-2.0-only
+/*
+ * Cove-610 board: SPI NAND boot, on-board Wi-Fi on SDIO0, SPI LCD and touch.
+ * The LCD uses the SDIO1 pins; hi3516cv610-demb-flash-sd.dts is the variant
+ * with the SD card slot instead. Both are packed into the FIT image.
+ */
+
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/interrupt-controller/irq.h>
+#include "hi3516cv610-demb.dts"
+#include "board_io_config.dtsi"
+#include "board_peripherals_config.dtsi"
+
+/ {
+	model = "Doit Cove-610";
+};
+
+/* SPI NAND boot uses SDIO0 for the onboard AIC8800D Wi-Fi module. */
+&mmc0 {
+	status = "disabled";
+};
+
+&sdio0 {
+	status = "okay";
+};

@@ -1,0 +1,9 @@
+prefix=/usr
+libdir=${prefix}/lib
+includedir=${prefix}/include/hisi
+
+Name: hisi-mpp
+Description: Hi3516CV610 MPP core: system, memory and user-space driver base
+Version: 1.0.0
+Libs: -L${libdir} -lss_mpi -lss_mpi_sysbind -lss_mpi_sysmem -lot_sys -lot_vb -lot_pm -lot_vca -lot_irq -lot_chnl -lot_base -lot_osal -lsecurec -lpthread -lm -ldl
+Cflags: -I${includedir} -Dhi3516cv610 -DOT_XXXX -DISP_V2 -DUSER_BIT_32 -DKERNEL_BIT_32 -DOT_RELEASE

@@ -1,0 +1,47 @@
+config BR2_PACKAGE_HISI_OSDRV
+	bool "hisi-osdrv (Hi3516CV610 MPP drivers and libraries)"
+	depends on BR2_arm
+	depends on BR2_LINUX_KERNEL
+	depends on BR2_TOOLCHAIN_USES_MUSL # prebuilt MPP libraries are musl only
+	depends on BR2_INSTALL_LIBSTDCPP
+	help
+	  HiSilicon Hi3516CV610 media platform (MPP): kernel modules
+	  built against the Buildroot kernel, the prebuilt user-space
+	  MPP libraries, sensor libraries and the SDK headers.
+
+	  Modules are installed to /drv/ko, libraries to /usr/lib and
+	  headers to the staging directory under /usr/include/hisi.
+
+	  The prebuilt libraries are ARMv7-A soft-float EABI binaries
+	  linked against musl, so the toolchain must match.
+
+if BR2_PACKAGE_HISI_OSDRV
+
+config BR2_PACKAGE_HISI_OSDRV_TARBALL
+	string "vendor SDK tarball"
+	default "$(BR2_EXTERNAL_CV610_PATH)/vendor/Hi3516CV610_tag_V2.1.0_Beta.tgz"
+	help
+	  Path to the Hi3516CV610 community SDK tarball. It is shared
+	  with the hisi-boot package.
+
+config BR2_PACKAGE_HISI_OSDRV_SENSORS_DIR
+	string "extra sensor sources directory"
+	default "$(BR2_EXTERNAL_CV610_PATH)/package/hisi-osdrv/sensors"
+	help
+	  Directory holding one sub-directory per sensor model. Each
+	  one is copied into the SDK sensor tree and built together
+	  with the MPP libraries (libsns_<model>.so). Leave empty to
+	  build only the sensors shipped in the SDK.
+
+config BR2_PACKAGE_HISI_OSDRV_SAMPLES
+	bool "install all MPP samples"
+	help
+	  Build every sample under samples/mpp and install the
+	  binaries to /opt/hisi/samples. sdk_server is always built
+	  and installed to /usr/sbin, with or without this option.
+
+endif
+
+comment "hisi-osdrv needs a Linux kernel and a musl toolchain w/ C++"
+	depends on BR2_arm
+	depends on !BR2_LINUX_KERNEL || !BR2_TOOLCHAIN_USES_MUSL || !BR2_INSTALL_LIBSTDCPP

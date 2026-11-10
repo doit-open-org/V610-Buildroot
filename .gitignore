@@ -1,0 +1,13 @@
+/buildroot/
+/dl/
+/output/
+/vendor/
+/.agents/
+/.aws/
+/.codex/
+__pycache__/
+*.log
+/V610-App-SDK/
+/V610-Apps/
+/V610-App-SDK
+/V610-Apps

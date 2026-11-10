@@ -1,0 +1,11 @@
+diff -Nur a/soc/drivers/mpp/cbb/isp/include/arch/hi3516cv610/include/ot_sns_ctrl.h b/soc/drivers/mpp/cbb/isp/include/arch/hi3516cv610/include/ot_sns_ctrl.h
+--- a/soc/drivers/mpp/cbb/isp/include/arch/hi3516cv610/include/ot_sns_ctrl.h
++++ b/soc/drivers/mpp/cbb/isp/include/arch/hi3516cv610/include/ot_sns_ctrl.h
+@@ -94,6 +94,7 @@
+     td_void (*pfn_restart)(ot_vi_pipe vi_pipe);
+     td_void (*pfn_mirror_flip)(ot_vi_pipe vi_pipe, ot_isp_sns_mirrorflip_type sns_mirror_flip);
+     td_void (*pfn_set_blc_clamp)(ot_vi_pipe vi_pipe, ot_isp_sns_blc_clamp sns_blc_clamp);
++    td_s32  (*pfn_set_dev_addr)(ot_vi_pipe vi_pipe, td_u32 address);
+     td_s32  (*pfn_write_reg)(ot_vi_pipe vi_pipe, td_u32 addr, td_u32 data);
+     td_s32  (*pfn_read_reg)(ot_vi_pipe vi_pipe, td_u32 addr);
+     td_s32  (*pfn_set_init)(ot_vi_pipe vi_pipe, ot_isp_init_attr *init_attr);

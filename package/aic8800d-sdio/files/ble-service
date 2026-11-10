@@ -1,0 +1,112 @@
+#!/bin/sh
+set -eu
+
+ACTION="${1:-start}"
+BLUETOOTHD=/usr/libexec/bluetooth/bluetoothd
+BLUETOOTHD_LOG=/run/ble-service-bluetoothd.log
+DBUS_SOCKET=/var/run/dbus/system_bus_socket
+
+wait_for_process()
+{
+    process="$1"
+    expected="$2"
+
+    for _ in 1 2 3 4 5; do
+        if pidof "$process" >/dev/null 2>&1; then
+            running=1
+        else
+            running=0
+        fi
+        [ "$running" = "$expected" ] && return 0
+        sleep 1
+    done
+    return 1
+}
+
+start_system_bus()
+{
+    if [ -e /var/lib/bluetooth ] && [ ! -d /var/lib/bluetooth ]; then
+        rm -f /var/lib/bluetooth
+    fi
+    mkdir -p /var/run/dbus /var/lib/dbus /var/lib/bluetooth /var/empty
+    if ! grep -q '^messagebus:' /etc/passwd; then
+        echo 'messagebus:x:1000:1000:Linux User,,,:/var/empty:/bin/sh' >>/etc/passwd
+    fi
+    if [ ! -s /var/lib/dbus/machine-id ]; then
+        dbus-uuidgen --ensure=/var/lib/dbus/machine-id
+    fi
+    if pidof dbus-daemon >/dev/null 2>&1 && [ -S "$DBUS_SOCKET" ]; then
+        return 0
+    fi
+    rm -f "$DBUS_SOCKET" /var/run/dbus/pid
+    dbus-daemon --config-file=/etc/dbus-1/system.conf --fork
+    for _ in 1 2 3 4 5; do
+        [ -S "$DBUS_SOCKET" ] && return 0
+        sleep 1
+    done
+    echo "[ble-service] error: system D-Bus did not start" >&2
+    return 1
+}
+
+start_ble()
+{
+    if [ ! -d /sys/class/bluetooth/hci0 ]; then
+        echo "[ble-service] error: hci0 is unavailable; check S51wireless" >&2
+        return 1
+    fi
+    if [ ! -x "$BLUETOOTHD" ]; then
+        echo "[ble-service] error: missing $BLUETOOTHD" >&2
+        return 1
+    fi
+    start_system_bus
+    if pidof bluetoothd >/dev/null 2>&1; then
+        echo "[ble-service] bluetoothd already running"
+        return 0
+    fi
+    "$BLUETOOTHD" -n >"$BLUETOOTHD_LOG" 2>&1 &
+    if ! wait_for_process bluetoothd 1; then
+        echo "[ble-service] error: bluetoothd did not start" >&2
+        return 1
+    fi
+    echo "[ble-service] bluetoothd started"
+}
+
+stop_ble()
+{
+    if ! pidof bluetoothd >/dev/null 2>&1; then
+        echo "[ble-service] bluetoothd already stopped"
+        return 0
+    fi
+    killall bluetoothd
+    if ! wait_for_process bluetoothd 0; then
+        echo "[ble-service] error: bluetoothd did not stop" >&2
+        return 1
+    fi
+    echo "[ble-service] bluetoothd stopped"
+}
+
+status_ble()
+{
+    if pidof bluetoothd >/dev/null 2>&1; then
+        echo "[ble-service] bluetoothd running"
+        return 0
+    fi
+    echo "[ble-service] bluetoothd stopped"
+    return 1
+}
+
+case "$ACTION" in
+    start)
+        start_ble
+        ;;
+    stop)
+        stop_ble
+        ;;
+    status)
+        status_ble
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|status}" >&2
+        exit 2
+        ;;
+esac

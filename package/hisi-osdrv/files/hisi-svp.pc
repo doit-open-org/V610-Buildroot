@@ -1,0 +1,8 @@
+prefix=/usr
+libdir=${prefix}/lib
+
+Name: hisi-svp
+Description: Hi3516CV610 SVP ACL: NPU model inference
+Version: 1.0.0
+Requires: hisi-mpp
+Libs: -L${libdir} -lsvp_acl -lprotobuf-c

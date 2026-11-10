@@ -1,0 +1,9 @@
+#!/bin/sh
+
+# Load the MPP modules before the display and application startup stages.
+
+if [ -x /drv/ko/load_ko/load3516cv610_20s_debug ]; then
+    cd /drv/ko/load_ko || exit 0
+    ./load3516cv610_20s_debug -i -sensor0 gc4023 -sensor1 gc4023 \
+        > /tmp/mpp.log
+fi

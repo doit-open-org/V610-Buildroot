@@ -1,0 +1,110 @@
+// SPDX-License-Identifier: GPL-2.0-only
+/* Sitronix ST7789V 240x320 SPI panel with PWM backlight. */
+
+&board_io_config {
+	lcd-cs {
+		gpio-num = "GPIO7_4";
+		function = "GPIO7_4";
+		pull = "pull-up";
+		drive = "I06_level8";
+		slew = "fast";
+		init-level = <1>;
+	};
+
+	lcd-sck {
+		gpio-num = "GPIO7_5";
+		function = "SPI0_SCLK";
+		pull = "none";
+		drive = "I06_level8";
+		slew = "fast";
+	};
+
+	lcd-mosi {
+		gpio-num = "GPIO1_1";
+		function = "SPI0_SDO";
+		pull = "none";
+		drive = "I06_level8";
+		slew = "fast";
+	};
+
+	lcd-dc {
+		gpio-num = "GPIO1_3";
+		function = "GPIO1_3";
+		pull = "none";
+		drive = "I02_level4";
+		slew = "fast";
+		init-level = <0>;
+	};
+
+	lcd-reset {
+		gpio-num = "GPIO1_2";
+		function = "GPIO1_2";
+		pull = "pull-up";
+		drive = "I02_level4";
+		slew = "fast";
+		init-level = <1>;
+	};
+
+	lcd-te {
+		gpio-num = "GPIO1_0";
+		function = "GPIO1_0";
+		pull = "none";
+		drive = "I02_level4";
+		slew = "fast";
+	};
+
+	lcd-backlight {
+		gpio-num = "GPIO7_7";
+		function = "PWM1_OUT0";
+		pull = "none";
+		drive = "I02_level4";
+		slew = "fast";
+	};
+};
+
+/ {
+	lcd_backlight: lcd-backlight {
+		compatible = "pwm-backlight";
+		pwms = <&pwm1 0 100000>;
+		brightness-levels = <0 255>;
+		default-brightness-level = <1>;
+		status = "okay";
+	};
+};
+
+&pwm1 {
+	#pwm-cells = <2>;
+};
+
+&sdio1 {
+	status = "disabled";
+};
+
+&spi_bus0 {
+	status = "okay";
+	dmas = <&edmacv310_0 7 7>, <&edmacv310_0 6 6>;
+	dma-names = "tx", "rx";
+	cs-gpios = <&gpio_chip7 4 GPIO_ACTIVE_LOW>;
+
+	/delete-node/ spidev@0;
+	/delete-node/ spidev@1;
+
+	/* Sitronix ST7789V, 240x320 */
+	lcd: display@0 {
+		compatible = "sitronix,st7789v";
+		reg = <0>;
+		spi-cpha;
+		spi-cpol;
+		pl022,interface = <0>;
+		pl022,com-mode = <2>;
+		pl022,tx-level-trig = <3>;
+		pl022,rx-level-trig = <3>;
+		spi-max-frequency = <50000000>;
+		rotation = <0>;
+		dc-gpios = <&gpio_chip1 3 GPIO_ACTIVE_HIGH>;
+		reset-gpios = <&gpio_chip1 2 GPIO_ACTIVE_HIGH>;
+		te-gpios = <&gpio_chip1 0 GPIO_ACTIVE_HIGH>;
+		backlight = <&lcd_backlight>;
+		status = "okay";
+	};
+};

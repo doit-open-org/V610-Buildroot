@@ -1,0 +1,82 @@
+#!/bin/sh
+set -eu
+
+ACTION="${1:-start}"
+WPA_CONFIG=/etc/wireless/wpa_supplicant.conf
+UDHCPC_PID=/run/wifi-service-udhcpc.pid
+
+enable_wifi_interface()
+{
+    if ifconfig wlan0 up 2>/dev/null; then
+        return 0
+    fi
+    echo "[wifi-service] error: wlan0 is unavailable; check S51wireless" >&2
+    return 1
+}
+
+start_wifi()
+{
+    enable_wifi_interface
+    if [ ! -r "$WPA_CONFIG" ]; then
+        echo "[wifi-service] error: missing $WPA_CONFIG" >&2
+        return 1
+    fi
+    if pidof wpa_supplicant >/dev/null 2>&1; then
+        echo "[wifi-service] wpa_supplicant already running"
+    else
+        echo "[wifi-service] starting wpa_supplicant..."
+        wpa_supplicant -B -i wlan0 -Dnl80211 -c "$WPA_CONFIG"
+    fi
+    echo "[wifi-service] requesting IP via DHCP..."
+    udhcpc -i wlan0 -n -q -t 15 -p "$UDHCPC_PID"
+    ifconfig wlan0
+}
+
+stop_wifi()
+{
+    if [ -s "$UDHCPC_PID" ]; then
+        pid="$(cat "$UDHCPC_PID")"
+        case "$pid" in
+            *[!0-9]*|'')
+                ;;
+            *)
+                kill "$pid" 2>/dev/null || true
+                ;;
+        esac
+        rm -f "$UDHCPC_PID"
+    fi
+    if pidof wpa_supplicant >/dev/null 2>&1; then
+        wpa_cli -iwlan0 terminate >/dev/null 2>&1 || killall wpa_supplicant
+    fi
+    ifconfig wlan0 down 2>/dev/null || true
+    echo "[wifi-service] Wi-Fi service stopped"
+}
+
+status_wifi()
+{
+    if ! ifconfig wlan0 >/dev/null 2>&1; then
+        echo "[wifi-service] Wi-Fi interface unavailable"
+        return 1
+    fi
+    if pidof wpa_supplicant >/dev/null 2>&1; then
+        echo "[wifi-service] Wi-Fi interface ready; wpa_supplicant running"
+    else
+        echo "[wifi-service] Wi-Fi interface ready; wpa_supplicant stopped"
+    fi
+}
+
+case "$ACTION" in
+    start)
+        start_wifi
+        ;;
+    stop)
+        stop_wifi
+        ;;
+    status)
+        status_wifi
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|status}" >&2
+        exit 2
+        ;;
+esac

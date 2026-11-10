@@ -1,0 +1,190 @@
+#!/bin/sh
+
+ACTION="${1:-start}"
+USB_MODE=/proc/wing-usb/10300000.usb20drd/mode
+UDC_NAME=10300000.dwc3
+CONFIGFS_ROOT=/sys/kernel/config
+GADGET=${CONFIGFS_ROOT}/usb_gadget/net
+USB_ADDRESS=192.168.137.2
+USB_NETMASK=255.255.255.0
+USB_GATEWAY=192.168.137.1
+PID_FILE=/var/run/usb-network.pid
+READY_FILE=/var/run/usb-network.ready
+FAILED_FILE=/var/run/usb-network.failed
+LOG_FILE=/tmp/usb-network.log
+
+wait_for_path()
+{
+    path=$1
+    attempts=$2
+
+    while [ "$attempts" -gt 0 ]; do
+        [ -e "$path" ] && return 0
+        attempts=$((attempts - 1))
+        sleep 0.05
+    done
+    return 1
+}
+
+setup_usb_network()
+(
+    set -e
+
+    if [ ! -w "${USB_MODE}" ]; then
+        echo "[usb-network] USB device mode control is unavailable" >&2
+        exit 1
+    fi
+
+    echo device > "${USB_MODE}"
+    if ! wait_for_path "/sys/class/udc/${UDC_NAME}" 40; then
+        echo "[usb-network] UDC ${UDC_NAME} is unavailable" >&2
+        exit 1
+    fi
+
+    if [ ! -d "${CONFIGFS_ROOT}/usb_gadget" ]; then
+        mount -t configfs none "${CONFIGFS_ROOT}"
+    fi
+
+    mkdir -p "${GADGET}"
+
+    if [ -n "$(cat "${GADGET}/UDC" 2>/dev/null)" ]; then
+        echo "" > "${GADGET}/UDC"
+    fi
+
+    echo 0x0200 > "${GADGET}/bcdUSB"
+    echo 0x0100 > "${GADGET}/bcdDevice"
+    echo 0xEF > "${GADGET}/bDeviceClass"
+    echo 0x02 > "${GADGET}/bDeviceSubClass"
+    echo 0x01 > "${GADGET}/bDeviceProtocol"
+    echo 0x1D6B > "${GADGET}/idVendor"
+    echo 0x0104 > "${GADGET}/idProduct"
+
+    mkdir -p "${GADGET}/strings/0x409"
+    echo CV610002 > "${GADGET}/strings/0x409/serialnumber"
+    echo Vendor > "${GADGET}/strings/0x409/manufacturer"
+    echo "CV610 RNDIS" > "${GADGET}/strings/0x409/product"
+
+    mkdir -p "${GADGET}/configs/c.1/strings/0x409"
+    echo "RNDIS Network" > "${GADGET}/configs/c.1/strings/0x409/configuration"
+    echo 0xC0 > "${GADGET}/configs/c.1/bmAttributes"
+    echo 0x01 > "${GADGET}/configs/c.1/MaxPower"
+
+    mkdir -p "${GADGET}/functions/rndis.usb0"
+    echo e0 > "${GADGET}/functions/rndis.usb0/class"
+    echo 01 > "${GADGET}/functions/rndis.usb0/subclass"
+    echo 03 > "${GADGET}/functions/rndis.usb0/protocol"
+
+    if [ ! -L "${GADGET}/configs/c.1/rndis.usb0" ]; then
+        echo 02:12:34:56:78:9a > "${GADGET}/functions/rndis.usb0/dev_addr"
+        echo 02:12:34:56:78:9b > "${GADGET}/functions/rndis.usb0/host_addr"
+        ln -s "${GADGET}/functions/rndis.usb0" "${GADGET}/configs/c.1/"
+    fi
+
+    echo 1 > "${GADGET}/os_desc/use"
+    echo 0xCD > "${GADGET}/os_desc/b_vendor_code"
+    echo MSFT100 > "${GADGET}/os_desc/qw_sign"
+    echo RNDIS > "${GADGET}/functions/rndis.usb0/os_desc/interface.rndis/compatible_id"
+    echo 5162001 > "${GADGET}/functions/rndis.usb0/os_desc/interface.rndis/sub_compatible_id"
+    if [ ! -L "${GADGET}/os_desc/c.1" ]; then
+        ln -s "${GADGET}/configs/c.1" "${GADGET}/os_desc/"
+    fi
+
+    echo "${UDC_NAME}" > "${GADGET}/UDC"
+    if ! wait_for_path /sys/class/net/usb0 40; then
+        echo "[usb-network] usb0 was not created" >&2
+        exit 1
+    fi
+    ifconfig usb0 "${USB_ADDRESS}" netmask "${USB_NETMASK}" up
+)
+
+usb_network_ready()
+{
+    ifconfig usb0 2>/dev/null | grep -q "inet addr:${USB_ADDRESS}"
+}
+
+start_usb_network()
+{
+    if ! setup_usb_network; then
+        echo "[usb-network] setup failed; keeping the original eth0 network" >&2
+        return 1
+    fi
+
+    ifconfig eth0 down 2>/dev/null || true
+    # usb0 is the debug link (ssh from the host over its own subnet); it must
+    # NOT own a default route or DNS. With one installed, Wi-Fi reconnect /
+    # DHCP-renew windows flip the default to usb0 and the host's ICS NAT
+    # black-holes fresh cloud connections for seconds ("always connects on
+    # the 2nd try"). Internet routing belongs to wlan0's DHCP alone.
+    echo "[usb-network] usb0=${USB_ADDRESS}/24 (link-local only, no default route)"
+}
+
+status_usb_network()
+{
+    if usb_network_ready; then
+        echo "[usb-network] ready"
+        return 0
+    fi
+
+    if [ -s "$PID_FILE" ]; then
+        pid="$(cat "$PID_FILE" 2>/dev/null || true)"
+        case "$pid" in
+            *[!0-9]*|'') ;;
+            *)
+                if kill -0 "$pid" 2>/dev/null; then
+                    echo "[usb-network] starting (pid $pid, log $LOG_FILE)"
+                    return 0
+                fi
+                ;;
+        esac
+    fi
+    if [ -f "$FAILED_FILE" ]; then
+        echo "[usb-network] failed (log $LOG_FILE)"
+        return 1
+    fi
+    echo "[usb-network] stopped"
+    return 1
+}
+
+run_usb_network()
+{
+    trap 'rm -f "$PID_FILE"' EXIT
+    if start_usb_network; then
+        : > "$READY_FILE"
+        rm -f "$FAILED_FILE"
+        return 0
+    else
+        result=$?
+    fi
+
+    echo "$result" > "$FAILED_FILE"
+    rm -f "$READY_FILE"
+    return "$result"
+}
+
+start_usb_network_async()
+{
+    mkdir -p /var/run
+    if status_usb_network >/dev/null 2>&1; then
+        status_usb_network
+        return 0
+    fi
+
+    rm -f "$PID_FILE" "$READY_FILE" "$FAILED_FILE"
+    : > "$LOG_FILE"
+    run_usb_network </dev/null >>"$LOG_FILE" 2>&1 &
+    pid=$!
+    echo "$pid" > "$PID_FILE"
+}
+
+case "$ACTION" in
+    start)
+        start_usb_network_async
+        ;;
+    status)
+        status_usb_network
+        ;;
+    *)
+        echo "Usage: $0 {start|status}" >&2
+        exit 2
+        ;;
+esac

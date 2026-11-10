@@ -1,0 +1,5 @@
+// SPDX-License-Identifier: GPL-2.0-only
+/* Peripherals wired to the Cove-610 expansion header. */
+
+#include "lcd_panel_config.dtsi"
+#include "touch_config.dtsi"

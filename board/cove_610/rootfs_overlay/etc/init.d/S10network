@@ -1,0 +1,73 @@
+#!/bin/sh
+
+# Establish the base network state before asynchronous USB/Wi-Fi startup.
+
+ipaddr=192.168.137.11
+bootp=
+gateway=192.168.137.1
+netmask=255.255.255.0
+hostname=-
+netdev=eth0
+autoconf=
+
+for ipinfo in `cat /proc/cmdline`
+do
+	case "$ipinfo" in
+	ip=*)
+		for var in  ipaddr bootp gateway netmask hostname netdev autoconf
+		do
+			eval read $var
+		done << EOF
+		`echo "$ipinfo" | sed "s/:/\n/g" | sed "s/^[ 	]*$/-/g"`
+EOF
+		ipaddr=`echo "$ipaddr" | cut -d = -f 2`
+		[ "x$ipaddr" = x ] && ipaddr=x
+		;;
+	esac
+done
+
+[ -z "$ipaddr" ] && exit 0
+
+echo "      IP: $ipaddr"
+echo "   BOOTP: $bootp"
+echo " GATEWAY: $gateway"
+echo " NETMASK: $netmask"
+echo "HOSTNAME: $hostname"
+echo "  NETDEV: $netdev"
+echo "AUTOCONF: $autoconf"
+
+ifconfig lo 127.0.0.1
+echo 32768 32868 > /proc/sys/net/ipv4/ip_local_port_range
+chmod 755 /usr/share/udhcpc/default.script
+ifconfig "$netdev" up
+
+if [ "x$ipaddr" = x- ] ; then
+	# Keep DHCP alive for lease renewal and retry when link/server comes up late.
+	# The shell backgrounds foreground-mode udhcpc so init is never blocked.
+	mkdir -p /var/run
+	udhcpc_pid="/var/run/udhcpc.${netdev}.pid"
+	udhcpc_log="/tmp/udhcpc-${netdev}.log"
+	udhcpc_running=
+	if [ -s "$udhcpc_pid" ]; then
+		udhcpc_process="$(cat "$udhcpc_pid" 2>/dev/null)"
+		if [ -n "$udhcpc_process" ] && kill -0 "$udhcpc_process" 2>/dev/null; then
+			udhcpc_running=1
+		fi
+	fi
+	if [ -z "$udhcpc_running" ]; then
+		rm -f "$udhcpc_pid"
+		udhcpc -f -i "$netdev" -p "$udhcpc_pid" \
+			-s /usr/share/udhcpc/default.script -t 5 -T 3 -A 5 \
+			> "$udhcpc_log" 2>&1 &
+		echo "[network] DHCP client started for $netdev; log: $udhcpc_log"
+	fi
+else
+	if [ "x$netmask" != x- ]; then
+		ifconfig "$netdev" "$ipaddr" netmask "$netmask"
+	else
+		ifconfig "$netdev" "$ipaddr"
+	fi
+	[ "x$gateway" != x- ] && route add default gw "$gateway"
+fi
+
+echo 0 9999999 > /proc/sys/net/ipv4/ping_group_range

@@ -1,0 +1,16 @@
+// SPDX-License-Identifier: GPL-2.0-only
+/*
+ * Pin multiplexing and electrical settings applied by the board_io_cfg module.
+ * Each peripheral adds its own pins to this node in its configuration file.
+ */
+
+/ {
+	board_io_config: board_io_config {
+		compatible = "vendor,board-io-config";
+
+		chip-info {
+			chip-model = "Hi3516CV610";
+			package = "QFN";
+		};
+	};
+};

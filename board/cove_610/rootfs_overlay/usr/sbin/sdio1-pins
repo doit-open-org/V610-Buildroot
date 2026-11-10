@@ -1,0 +1,61 @@
+#!/bin/sh
+# Choose between the SPI LCD and the SD card slot, which share the SDIO1 pins,
+# or neither of them.
+# U-Boot boots the matching device tree of the FIT image, named by the
+# sdio1_pins environment variable; the change takes effect on reboot.
+#
+#   sdio1-pins              show the running mode and the one for the next boot
+#   sdio1-pins lcd|sd|none  select the mode for the next boot
+
+SDIO1_STATUS=/proc/device-tree/soc/amba/SDIO1@0x10040000/status
+LCD_PINS=/proc/device-tree/board_io_config/lcd-cs
+
+running_mode()
+{
+	if [ "$(tr -d '\0' < "$SDIO1_STATUS" 2>/dev/null)" = okay ]; then
+		echo sd
+	elif [ -d "$LCD_PINS" ]; then
+		echo lcd
+	else
+		echo none
+	fi
+}
+
+# U-Boot boots the default configuration, lcd, when sdio1_pins names none.
+next_mode()
+{
+	mode=$(fw_printenv -n sdio1_pins 2>/dev/null)
+	case "$mode" in
+		lcd|sd|none) echo "$mode" ;;
+		*) echo lcd ;;
+	esac
+}
+
+show_usage()
+{
+	echo "Usage: $0 [lcd|sd|none]" >&2
+}
+
+if [ "$#" -gt 1 ]; then
+	show_usage
+	exit 2
+fi
+
+case "${1:-}" in
+	'')
+		echo "running: $(running_mode)"
+		echo "next boot: $(next_mode)"
+		;;
+	lcd|sd|none)
+		fw_setenv sdio1_pins "$1" || exit 1
+		if [ "$1" = "$(running_mode)" ]; then
+			echo "$1 mode is already running"
+		else
+			echo "$1 mode selected, reboot to apply"
+		fi
+		;;
+	*)
+		show_usage
+		exit 2
+		;;
+esac

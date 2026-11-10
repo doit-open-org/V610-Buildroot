@@ -1,0 +1,55 @@
+aic8800_fdrv: btsdio: do not collide with the kernel hci_dev_get symbol
+
+The SDIO HCI transport defines its own global hci_dev_get(), which clashes
+with the one exported by the kernel Bluetooth core. Make it a static
+helper under another name and silence the transport's info logging.
+
+--- a/driver/aic8800/aic8800_fdrv/aic_btsdio.h
++++ b/driver/aic8800/aic8800_fdrv/aic_btsdio.h
+@@ -31,7 +31,7 @@
+ #define PRINT_ACL_DATA          1
+ #define PRINT_SCO_DATA          1
+ 
+-#define AICBT_DBG_FLAG          1
++#define AICBT_DBG_FLAG          0
+ 
+ #if AICBT_DBG_FLAG
+ #define AICBT_DBG(fmt, arg...) printk( "aic_btsdio: " fmt "\n" , ## arg)
+@@ -39,7 +39,7 @@
+ #define AICBT_DBG(fmt, arg...)
+ #endif
+ 
+-#define AICBT_INFO(fmt, arg...) printk("aic_btsdio: " fmt "\n" , ## arg)
++#define AICBT_INFO(fmt, arg...)
+ #define AICBT_WARN(fmt, arg...) printk("aic_btsdio: " fmt "\n" , ## arg)
+ #define AICBT_ERR(fmt, arg...) printk("aic_btsdio: " fmt "\n" , ## arg)
+ 
+--- a/driver/aic8800/aic8800_fdrv/btsdio.c
++++ b/driver/aic8800/aic8800_fdrv/btsdio.c
+@@ -127,7 +127,7 @@ static int btsdio_flush(struct hci_dev *hdev)
+ 
+ /* Get HCI device by index.
+  * Device is held on return. */
+-struct hci_dev *hci_dev_get(int index)
++static struct hci_dev *aic_hci_dev_get(int index)
+ {
+     if (index != 0)
+         return NULL;
+@@ -142,7 +142,7 @@ int btsdio_recv_frame(void *dev, const unsigned char *data, int data_len)
+ 	struct hci_dev *hdev;
+ 	u32 len = data_len;
+ 	int ret=0;
+-	hdev = hci_dev_get(0);
++	hdev = aic_hci_dev_get(0);
+     if (!hdev) {
+         AICWFDBG(LOGERROR,"%s: Failed to get hci dev[NULL]", __func__);
+         return -ENODEV;
+@@ -277,7 +277,7 @@ void btsdio_remove(void)
+ {
+ 	struct btsdio_data *data;
+ 	struct hci_dev *hdev;
+-    hdev = hci_dev_get(0);
++    hdev = aic_hci_dev_get(0);
+     if (!hdev) {
+         AICBT_ERR("%s: Failed to get hci dev[Null]", __func__);
+         return;

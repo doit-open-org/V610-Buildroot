@@ -1,0 +1,27 @@
+config BR2_PACKAGE_LCD_DRIVER
+	bool "lcd-driver (ST7789V SPI LCD DRM driver)"
+	depends on BR2_LINUX_KERNEL
+	select BR2_PACKAGE_BOARD_IO_CFG
+	help
+	  DRM driver for the Sitronix ST7789V 240x320 SPI LCD module
+	  of the Cove-610, built as an external kernel module, with
+	  lcd_driver_ctl to load and unload it and
+	  /etc/lcd-driver.conf describing the panel.
+
+	  The kernel needs CONFIG_DRM_EXTERNAL_MIPI_DBI. The panel
+	  wiring is described in
+	  board/cove_610/dts/lcd_panel_config.dtsi.
+
+if BR2_PACKAGE_LCD_DRIVER
+
+config BR2_PACKAGE_LCD_DRIVER_AUTOLOAD
+	bool "load the driver at boot"
+	default y
+	help
+	  Install /etc/init.d/S30lcd. Without it a program loads the
+	  driver with "lcd_driver_ctl start" when it needs the display.
+
+endif
+
+comment "lcd-driver needs a Linux kernel"
+	depends on !BR2_LINUX_KERNEL

@@ -1,0 +1,56 @@
+From fc002f0f23e28026bb680fa34e3797de9edefdbb Mon Sep 17 00:00:00 2001
+From: Daniel Scally <djrscally@gmail.com>
+Date: Thu, 7 Jan 2021 14:28:29 +0100
+Subject: [PATCH] media: software_node: unregister software_nodes in reverse
+ order
+
+To maintain consistency with software_node_unregister_nodes(), reverse
+the order in which the software_node_unregister_node_group() function
+unregisters nodes.
+
+Reported-by: kernel test robot <lkp@intel.com>
+Reported-by: Dan Carpenter <dan.carpenter@oracle.com>
+Reviewed-by: Laurent Pinchart <laurent.pinchart@ideasonboard.com>
+Suggested-by: Andy Shevchenko <andriy.shevchenko@linux.intel.com>
+Signed-off-by: Daniel Scally <djrscally@gmail.com>
+Reviewed-by: Heikki Krogerus <heikki.krogerus@linux.intel.com>
+Acked-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+Acked-by: Rafael J. Wysocki <rafael.j.wysocki@intel.com>
+Signed-off-by: Sakari Ailus <sakari.ailus@linux.intel.com>
+Signed-off-by: Mauro Carvalho Chehab <mchehab+huawei@kernel.org>
+---
+ drivers/base/swnode.c | 15 +++++++++++----
+ 1 file changed, 11 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/base/swnode.c b/drivers/base/swnode.c
+index 166c5cc73f3992..6f7443c6d3b5a5 100644
+--- a/drivers/base/swnode.c
++++ b/drivers/base/swnode.c
+@@ -779,16 +779,23 @@ EXPORT_SYMBOL_GPL(software_node_register_node_group);
+  * software_node_unregister_node_group - Unregister a group of software nodes
+  * @node_group: NULL terminated array of software node pointers to be unregistered
+  *
+- * Unregister multiple software nodes at once.
++ * Unregister multiple software nodes at once. The array will be unwound in
++ * reverse order (i.e. last entry first) and thus if any members of the array are
++ * children of another member then the children must appear later in the list such
++ * that they are unregistered first.
+  */
+-void software_node_unregister_node_group(const struct software_node **node_group)
++void software_node_unregister_node_group(
++		const struct software_node **node_group)
+ {
+-	unsigned int i;
++	unsigned int i = 0;
+ 
+ 	if (!node_group)
+ 		return;
+ 
+-	for (i = 0; node_group[i]; i++)
++	while (node_group[i])
++		i++;
++
++	while (i--)
+ 		software_node_unregister(node_group[i]);
+ }
+ EXPORT_SYMBOL_GPL(software_node_unregister_node_group);

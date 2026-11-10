@@ -1,0 +1,298 @@
+spi: pl022: DMA stability and GPIO chip-select fixes
+
+Needed for the SPI LCD: recover from RX DMA stalls and drive GPIO chip
+selects correctly for DMA transfers.
+
+--- a/drivers/spi/spi-pl022.c
++++ b/drivers/spi/spi-pl022.c
+@@ -28,7 +28,16 @@
+ #include <linux/io.h>
+ #include <linux/slab.h>
+ #include <linux/dmaengine.h>
++#include <linux/timer.h>
+ #include <linux/dma-mapping.h>
++
++/*
++ * RX-DMA stall recovery (see pl022_rxdma_stall_watchdog): a rare RX FIFO
++ * overrun can leave the RX DMA a few bytes short forever, wedging the transfer.
++ * When enabled, a per-transfer watchdog aborts such a wedged transfer with
++ * -EIO instead of hanging. Set to 0 to compile it out.
++ */
++#define PL022_RXDMA_STALL_RECOVERY 1
+ #include <linux/scatterlist.h>
+ #include <linux/pm_runtime.h>
+ #include <linux/gpio.h>
+@@ -403,6 +412,15 @@
+ #ifdef CONFIG_ARCH_BSP
+ 	struct ssp_vendor_data vendor_data;
+ #endif
++#if PL022_RXDMA_STALL_RECOVERY
++	/* RX-DMA stall recovery watchdog */
++	struct timer_list	stall_timer;
++	dma_cookie_t		stall_rx_cookie;
++	dma_cookie_t		stall_tx_cookie;
++	unsigned int		stall_xfer_len;
++	unsigned int		stall_overrun_cnt;
++	unsigned long		stall_start;
++#endif
+ };
+ 
+ /**
+@@ -473,10 +491,10 @@
+ 
+ static void pl022_cs_control(struct pl022 *pl022, u32 command)
+ {
+-	if (pl022->vendor->internal_cs_ctrl)
+-		internal_cs_control(pl022, command);
+-	else if (gpio_is_valid(pl022->cur_cs))
++	if (gpio_is_valid(pl022->cur_cs))
+ 		gpio_set_value(pl022->cur_cs, command);
++	else if (pl022->vendor->internal_cs_ctrl)
++		internal_cs_control(pl022, command);
+ 	else
+ 		pl022->cur_chip->cs_control(command);
+ }
+@@ -813,11 +831,105 @@
+ 	sg_free_table(&pl022->sgt_tx);
+ }
+ 
++#if PL022_RXDMA_STALL_RECOVERY
++/*
++ * RX-DMA stall recovery watchdog.
++ *
++ * Armed when a DMA transfer is issued (configure_dma), disarmed on normal
++ * completion (dma_callback) or teardown (terminate_dma).
++ *
++ * Confirmed failure mode (captured on HW): the SPI is internally full-duplex,
++ * so every TX frame clocks an RX frame into the RX FIFO even though MISO is not
++ * wired. The RX FIFO is drained by EDMAC into a throwaway buffer. Under load the
++ * EDMAC is occasionally late, the RX FIFO overruns once (RORMIS), and one burst
++ * worth of RX frames is dropped (written to the shift register, not the FIFO).
++ * The RX DMA is programmed for the full byte count, so it ends up a few bytes
++ * short forever: TX completes (res=0, BSY=0, bus idle) but RX residue freezes
++ * (e.g. res=8) and dma_callback never fires -> spi_sync() would wait forever.
++ *
++ * The lost bytes are garbage and unrecoverable (bus is idle, they will never
++ * arrive), and the panel already got the frame from the completed TX side, so
++ * the only sane action is to abort this transfer and move on.
++ */
++static void terminate_dma(struct pl022 *pl022);		/* forward decl for recovery */
++
++static void pl022_rxdma_stall_watchdog(struct timer_list *t)
++{
++	struct pl022 *pl022 = from_timer(pl022, t, stall_timer);
++	struct spi_message *msg = pl022->cur_msg;
++	void __iomem *base = pl022->virtbase;
++	struct dma_tx_state rxtx = {0}, txtx = {0};
++	enum dma_status rxs = DMA_COMPLETE, txs = DMA_COMPLETE;
++	u16 sr   = readw(SSP_SR(base));
++	u16 ris  = readw(SSP_RIS(base));
++	u16 mis  = readw(SSP_MIS(base));
++	u16 imsc = readw(SSP_IMSC(base));
++	u16 cr1  = readw(SSP_CR1(base));
++
++	if (pl022->dma_rx_channel)
++		rxs = dmaengine_tx_status(pl022->dma_rx_channel,
++					  pl022->stall_rx_cookie, &rxtx);
++	if (pl022->dma_tx_channel)
++		txs = dmaengine_tx_status(pl022->dma_tx_channel,
++					  pl022->stall_tx_cookie, &txtx);
++
++	dev_err(&pl022->adev->dev,
++	       "RX-DMA stalled %ums, aborting frame (-EIO) | len=%u | SR=0x%03x BSY=%d RFF=%d RNE=%d TNF=%d TFE=%d | RIS=0x%x MIS=0x%x IMSC=0x%x SSE=%d | RXdma st=%d res=%u | TXdma st=%d res=%u | overrun=%u\n",
++	       jiffies_to_msecs(jiffies - pl022->stall_start),
++	       pl022->stall_xfer_len, sr,
++	       !!(sr & SSP_SR_MASK_BSY), !!(sr & SSP_SR_MASK_RFF),
++	       !!(sr & SSP_SR_MASK_RNE), !!(sr & SSP_SR_MASK_TNF),
++	       !!(sr & SSP_SR_MASK_TFE),
++	       ris, mis, imsc, !!(cr1 & SSP_CR1_MASK_SSE),
++	       rxs, (unsigned int)rxtx.residue,
++	       txs, (unsigned int)txtx.residue,
++	       pl022->stall_overrun_cnt);
++
++	/*
++	 * Recovery: the RX DMA can never complete now. RX data was lost to an
++	 * overrun and the bus is idle (BSY=0, TX drained), so the missing tail
++	 * bytes will never arrive and the RX residue is frozen forever. The TX
++	 * side already finished, so the panel already received this frame; the
++	 * RX is throwaway for a write-only display. Abort instead of waiting:
++	 * tear down both DMA channels, quiesce the controller, mark the message
++	 * STATE_ERROR and let pump_transfers() give it back with -EIO. Do NOT
++	 * re-arm here; the next frame re-arms via configure_dma().
++	 */
++	if (!msg)
++		return;				/* already given back */
++	terminate_dma(pl022);
++	writew(DISABLE_ALL_INTERRUPTS, SSP_IMSC(base));
++	writew(CLEAR_ALL_INTERRUPTS, SSP_ICR(base));
++	writew(readw(SSP_CR1(base)) & ~SSP_CR1_MASK_SSE, SSP_CR1(base));
++	msg->state = STATE_ERROR;
++	tasklet_schedule(&pl022->pump_transfers);
++}
++
++static inline void pl022_rxdma_stall_arm(struct pl022 *pl022)
++{
++	pl022->stall_overrun_cnt = 0;
++	pl022->stall_xfer_len = pl022->cur_transfer ? pl022->cur_transfer->len : 0;
++	pl022->stall_start = jiffies;
++	/*
++	 * Abort timeout = 500ms (HZ/2). The worst measured *healthy* transfer
++	 * (incl. flow-control throttling under load) is ~70ms, so this is ~7x
++	 * margin: deadlocked transfers are aborted quickly while legitimately
++	 * slow ones are never false-killed. Don't go below ~300ms without data
++	 * on the real worst-case transfer time -- false aborts (dropped frames)
++	 * are more harmful and more frequent than the rare (~hours) deadlock.
++	 */
++	mod_timer(&pl022->stall_timer, jiffies + HZ / 2);
++}
++#endif /* PL022_RXDMA_STALL_RECOVERY */
++
+ static void dma_callback(void *data)
+ {
+ 	struct pl022 *pl022 = data;
+ 	struct spi_message *msg = pl022->cur_msg;
+ 
++#if PL022_RXDMA_STALL_RECOVERY
++	del_timer(&pl022->stall_timer);	/* transfer completed normally */
++#endif
+ 	BUG_ON(!pl022->sgt_rx.sgl);
+ 
+ #ifdef VERBOSE_DEBUG
+@@ -1035,6 +1147,29 @@
+ 		tx_conf.dst_addr_width = rx_conf.src_addr_width;
+ 	BUG_ON(rx_conf.src_addr_width != tx_conf.dst_addr_width);
+ 
++#ifdef CONFIG_ARCH_BSP
++	/*
++	 * Fix DMA burst size and FIFO waterline to 4 for both TX and RX.
++	 * Tested values on Hi3516CV610:
++	 *   burst=16: RX FIFO overrun (ROR) - FIFO fills before DMA responds,
++	 *             causes SPI DMA to hang (kworker blocked > 120s).
++	 *   burst=8:  RX FIFO overrun (ROR) - same root cause; more frequent
++	 *             due to smaller FIFO headroom and higher DMA request rate.
++	 *   burst=4:  Optimal. Sufficient RX FIFO headroom, no overrun observed
++	 *             in testing. Burst size equals waterline as DMAC requires.
++	 *   burst=1:  No overrun, but too many DMA requests degrade SPI
++	 *             transfer throughput noticeably.
++	 * FIFO_CR encoding: 0x00=1, 0x01=4, 0x02=8, 0x03=16 words per burst.
++	 */
++	{
++		u16 fifo_dma_cr = 0x01; /* burst=4, FIFO_CR=0x01 */
++		tx_conf.dst_maxburst = 4;
++		rx_conf.src_maxburst = 4;
++		writew(fifo_dma_cr, VENDOR_SSP_TX_FIFO_CR(pl022->virtbase));
++		writew(fifo_dma_cr, VENDOR_SSP_RX_FIFO_CR(pl022->virtbase));
++	}
++#endif
++
+ 	dmaengine_slave_config(rxchan, &rx_conf);
+ 	dmaengine_slave_config(txchan, &tx_conf);
+ 
+@@ -1095,6 +1230,12 @@
+ 	dma_async_issue_pending(txchan);
+ 	pl022->dma_running = true;
+ 
++#if PL022_RXDMA_STALL_RECOVERY
++	pl022->stall_rx_cookie = rxdesc->cookie;
++	pl022->stall_tx_cookie = txdesc->cookie;
++	pl022_rxdma_stall_arm(pl022);
++#endif
++
+ 	return 0;
+ 
+ err_txdesc:
+@@ -1208,6 +1349,9 @@
+ 	struct dma_chan *rxchan = pl022->dma_rx_channel;
+ 	struct dma_chan *txchan = pl022->dma_tx_channel;
+ 
++#if PL022_RXDMA_STALL_RECOVERY
++	del_timer(&pl022->stall_timer);
++#endif
+ 	dmaengine_terminate_all(rxchan);
+ 	dmaengine_terminate_all(txchan);
+ 	unmap_free_dma_scatter(pl022);
+@@ -1284,6 +1428,20 @@
+ 	 * trusted.
+ 	 */
+ 	if (unlikely(irq_status & SSP_MIS_MASK_RORMIS)) {
++#ifdef CONFIG_ARCH_BSP
++		/*
++		 * Hi3516 extension: RORIM=1 enables HW flow control, so
++		 * RORIS=1 is a flow-control event, not data corruption.
++		 * Clear the interrupt and let DMA finish the transfer.
++		 */
++		writew(SSP_ICR_MASK_RORIC, SSP_ICR(pl022->virtbase));
++#if PL022_RXDMA_STALL_RECOVERY
++		pl022->stall_overrun_cnt++;	/* count flow-control/overrun events */
++#endif
++		dev_dbg_ratelimited(&pl022->adev->dev,
++			"RX FIFO full, HW flow control engaged\n");
++		return IRQ_HANDLED;
++#else
+ 		/*
+ 		 * Overrun interrupt - bail out since our Data has been
+ 		 * corrupted
+@@ -1308,6 +1466,7 @@
+ 		/* Schedule message queue handler */
+ 		tasklet_schedule(&pl022->pump_transfers);
+ 		return IRQ_HANDLED;
++#endif
+ 	}
+ 
+ 	readwriter(pl022);
+@@ -1477,8 +1636,11 @@
+ 				"configuration of DMA failed, fall back to interrupt mode\n");
+ 			goto err_config_dma;
+ 		}
+-		/* Disable interrupts in DMA mode, IRQ from DMA controller */
+-		irqflags = DISABLE_ALL_INTERRUPTS;
++		/* Enable RORIM for HW flow control (Hisilicon extension):
++		 * RX FIFO full stalls SCLK instead of overrunning. DMA
++		 * completion still comes via DMAC callback.
++		 */
++		irqflags = SSP_IMSC_MASK_RORIM;
+ 	}
+ err_config_dma:
+ 	/* Enable SSP, turn on interrupts */
+@@ -2189,10 +2351,7 @@
+ 	if (platform_info->num_chipselect && platform_info->chipselects) {
+ 		for (i = 0; i < num_cs; i++)
+ 			pl022->chipselects[i] = platform_info->chipselects[i];
+-	} else if (pl022->vendor->internal_cs_ctrl) {
+-		for (i = 0; i < num_cs; i++)
+-			pl022->chipselects[i] = i;
+-	} else if (IS_ENABLED(CONFIG_OF)) {
++	} else if (IS_ENABLED(CONFIG_OF) && of_find_property(np, "cs-gpios", NULL)) {
+ 		for (i = 0; i < num_cs; i++) {
+ 			int cs_gpio = of_get_named_gpio(np, "cs-gpios", i);
+ 
+@@ -2214,6 +2373,9 @@
+ 						cs_gpio);
+ 			}
+ 		}
++	} else if (pl022->vendor->internal_cs_ctrl) {
++		for (i = 0; i < num_cs; i++)
++			pl022->chipselects[i] = i;
+ 	}
+ 
+ 	/*
+@@ -2256,6 +2418,9 @@
+ 	/* Initialize transfer pump */
+ 	tasklet_init(&pl022->pump_transfers, pump_transfers,
+ 		     (unsigned long)pl022);
++#if PL022_RXDMA_STALL_RECOVERY && defined(CONFIG_DMA_ENGINE)
++	timer_setup(&pl022->stall_timer, pl022_rxdma_stall_watchdog, 0);
++#endif
+ #ifdef CONFIG_ARCH_BSP
+ 	status = vendor_ssp_init(&pl022->vendor_data, pl022->virtbase, master, adev,
+ 			pl022->vendor->internal_cs_ctrl);
+@@ -2349,6 +2514,9 @@
+ 
+ 	clk_disable_unprepare(pl022->clk);
+ 	amba_release_regions(adev);
++#if PL022_RXDMA_STALL_RECOVERY
++	del_timer_sync(&pl022->stall_timer);
++#endif
+ 	tasklet_disable(&pl022->pump_transfers);
+ }
+ 

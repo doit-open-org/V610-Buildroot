@@ -1,0 +1,155 @@
+#!/bin/sh
+
+# Empty means disabled. Set an absolute path to enable application autostart.
+APP_PATH=
+# APP_PATH=/root/app-autostart
+APP_NAME="${APP_PATH##*/}"
+[ -n "$APP_NAME" ] || APP_NAME=app-autostart
+PID_FILE="/var/run/${APP_NAME}.pid"
+LOG_FILE="/tmp/${APP_NAME}.log"
+RESTART_EXIT_CODE=75
+RESTART_DELAY_S=1
+# Restart after crashes and other nonzero exits. Set to 0 to disable.
+RESTART_ON_FAILURE=1
+
+ACTION="${1:-start}"
+
+is_running()
+{
+    [ -s "$PID_FILE" ] || return 1
+
+    pid="$(cat "$PID_FILE" 2>/dev/null || true)"
+    case "$pid" in
+        *[!0-9]*|'') return 1 ;;
+    esac
+
+    kill -0 "$pid" 2>/dev/null
+}
+
+supervise_app()
+{
+    child_pid=
+    stop_requested=0
+
+    forward_stop()
+    {
+        stop_requested=1
+        if [ -n "$child_pid" ]; then
+            kill -TERM "$child_pid" 2>/dev/null || true
+        fi
+    }
+
+    trap '' HUP
+    trap forward_stop INT TERM
+    app_dir="${APP_PATH%/*}"
+    cd "$app_dir" || exit 1
+    export HOME=/root
+
+    while [ "$stop_requested" -eq 0 ]; do
+        "$APP_PATH" &
+        child_pid=$!
+        wait "$child_pid"
+        result=$?
+
+        if [ "$stop_requested" -ne 0 ]; then
+            wait "$child_pid" 2>/dev/null || true
+            child_pid=
+            return 0
+        fi
+        child_pid=
+        if [ "$result" -eq 0 ]; then
+            return "$result"
+        fi
+        if [ "$result" -eq "$RESTART_EXIT_CODE" ]; then
+            echo "[$APP_NAME] restart requested (exit $result)"
+        elif [ "$RESTART_ON_FAILURE" = "1" ]; then
+            echo "[$APP_NAME] exited unexpectedly (exit $result), restarting"
+        else
+            return "$result"
+        fi
+        sleep "$RESTART_DELAY_S"
+    done
+}
+
+start_app()
+{
+    if is_running; then
+        echo "[$APP_NAME] already running (pid $pid)"
+        return 0
+    fi
+
+    rm -f "$PID_FILE"
+    if [ -z "$APP_PATH" ]; then
+        echo "[$APP_NAME] disabled: APP_PATH is empty"
+        return 0
+    fi
+    if [ ! -x "$APP_PATH" ]; then
+        echo "[$APP_NAME] skip: $APP_PATH is not executable"
+        return 0
+    fi
+    case "$RESTART_ON_FAILURE" in
+        0|1) ;;
+        *)
+            echo "[$APP_NAME] RESTART_ON_FAILURE must be 0 or 1" >&2
+            return 1
+            ;;
+    esac
+
+    mkdir -p /var/run
+    supervise_app </dev/null >>"$LOG_FILE" 2>&1 &
+    pid=$!
+    echo "$pid" > "$PID_FILE"
+    echo "[$APP_NAME] started $APP_PATH (pid $pid, log $LOG_FILE)"
+}
+
+stop_app()
+{
+    if ! is_running; then
+        rm -f "$PID_FILE"
+        echo "[$APP_NAME] stopped"
+        return 0
+    fi
+
+    kill "$pid"
+    attempts=50
+    while kill -0 "$pid" 2>/dev/null && [ "$attempts" -gt 0 ]; do
+        attempts=$((attempts - 1))
+        sleep 0.1
+    done
+    if kill -0 "$pid" 2>/dev/null; then
+        kill -9 "$pid"
+    fi
+    rm -f "$PID_FILE"
+    echo "[$APP_NAME] stopped"
+}
+
+status_app()
+{
+    if is_running; then
+        echo "[$APP_NAME] running (pid $pid)"
+        return 0
+    fi
+
+    echo "[$APP_NAME] stopped"
+    return 1
+}
+
+case "$ACTION" in
+    start)
+        start_app
+        ;;
+    stop)
+        stop_app
+        ;;
+    restart)
+        stop_app
+        start_app
+        ;;
+    status)
+        status_app
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|restart|status}" >&2
+        exit 2
+        ;;
+esac

@@ -1,0 +1,30 @@
+aic8800_bsp: log errors only
+
+The BSP module prints its firmware download and command exchange at every
+start; keep the error level only.
+
+The FDRV module reports the custom regulatory rules it set up successfully
+with wiphy_err; log that notice at the info level.
+
+--- a/driver/aic8800/aic8800_bsp/aic_bsp_main.c
++++ b/driver/aic8800/aic8800_bsp/aic_bsp_main.c
+@@ -15,7 +15,7 @@
+ #define DRV_AUTHOR            "AICSemi"
+ #define DRV_VERS_MOD          "1.0"
+ 
+-int aicwf_dbg_level_bsp = LOGERROR|LOGINFO|LOGDEBUG|LOGTRACE;
++int aicwf_dbg_level_bsp = LOGERROR;
+ 
+ struct semaphore aicbsp_probe_semaphore;
+ 
+--- a/driver/aic8800/aic8800_fdrv/rwnx_mod_params.c
++++ b/driver/aic8800/aic8800_fdrv/rwnx_mod_params.c
+@@ -1807,7 +1807,7 @@
+ #endif
+ 
+ 	else{
+-		wiphy_err(wiphy,"\n"
++		wiphy_info(wiphy,"\n"
+ 				  "*******************************************************\n"
+ 				  "** CAUTION: USING PERMISSIVE CUSTOM REGULATORY RULES **\n"
+ 				  "*******************************************************\n");

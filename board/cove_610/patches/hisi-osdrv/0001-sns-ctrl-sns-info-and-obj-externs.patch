@@ -1,0 +1,87 @@
+diff --git a/soc/drivers/mpp/cbb/isp/include/arch/hi3516cv610/include/ot_sns_ctrl.h b/soc/drivers/mpp/cbb/isp/include/arch/hi3516cv610/include/ot_sns_ctrl.h
+index 8ab80ac..f052553 100644
+--- a/soc/drivers/mpp/cbb/isp/include/arch/hi3516cv610/include/ot_sns_ctrl.h
++++ b/soc/drivers/mpp/cbb/isp/include/arch/hi3516cv610/include/ot_sns_ctrl.h
+@@ -28,6 +28,7 @@ extern "C" {
+ #endif /* End of #ifdef __cplusplus */
+ 
+ #define ISP_SNS_SAVE_INFO_MAX 2
++#define SENSOR_MODE_MAX 2
+ typedef struct {
+     td_bool      init;                   /* TD_TRUE: Sensor init */
+     td_bool      sync_init;              /* TD_TRUE: Sync Reg init */
+@@ -65,6 +66,24 @@ typedef struct {
+     td_bool enable;
+ } ot_isp_sns_fast_ae_attr;
+ 
++typedef struct {
++    td_u32      ver_lines;
++    td_u32      max_ver_lines;
++    td_float    max_fps;
++    td_float    min_fps;
++    td_u32      width;
++    td_u32      height;
++    td_u8       sns_mode;
++    ot_wdr_mode wdr_mode;
++    const char *mode_name;
++} cis_video_mode_tbl;
++
++typedef struct {
++    td_s32 sns_info_num;
++    ot_isp_bayer_format bayer_format[SENSOR_MODE_MAX];
++    cis_video_mode_tbl mode_tbl[SENSOR_MODE_MAX];
++} ot_isp_sns_info;
++
+ typedef struct {
+     td_s32  (*pfn_register_callback)(ot_vi_pipe vi_pipe, ot_isp_3a_alg_lib *ae_lib, ot_isp_3a_alg_lib *awb_lib);
+     td_s32  (*pfn_un_register_callback)(ot_vi_pipe vi_pipe, ot_isp_3a_alg_lib *ae_lib, ot_isp_3a_alg_lib *awb_lib);
+@@ -79,9 +98,17 @@ typedef struct {
+     td_s32  (*pfn_read_reg)(ot_vi_pipe vi_pipe, td_u32 addr);
+     td_s32  (*pfn_set_init)(ot_vi_pipe vi_pipe, ot_isp_init_attr *init_attr);
+     td_s32  (*pfn_set_fast_ae)(ot_vi_pipe vi_pipe, ot_isp_sns_fast_ae_attr *fast_ae_attr);
++    td_s32  (*pfn_get_sns_info)(ot_vi_pipe vi_pipe, ot_isp_sns_info* sns_info);
+ } ot_isp_sns_obj;
+ 
+ extern ot_isp_sns_obj g_sns_hy006_3814_0011_obj;
++extern ot_isp_sns_obj g_sns_cs5186_obj;
++extern ot_isp_sns_obj g_sns_gc4023_obj;
++extern ot_isp_sns_obj g_sns_os04d10_obj;
++extern ot_isp_sns_obj g_sns_sc431hai_obj;
++extern ot_isp_sns_obj g_sns_sc4336p_obj;
++extern ot_isp_sns_obj g_sns_sc450ai_obj;
++extern ot_isp_sns_obj g_sns_sc500ai_obj;
+ 
+ #define sns_check_pointer_return(ptr) \
+     do { \
+diff --git a/soc/drivers/mpp/cbb/isp/user/sensor/hi3516cv610/common/sensor_common.h b/soc/drivers/mpp/cbb/isp/user/sensor/hi3516cv610/common/sensor_common.h
+index 14cdf9a..854313f 100644
+--- a/soc/drivers/mpp/cbb/isp/user/sensor/hi3516cv610/common/sensor_common.h
++++ b/soc/drivers/mpp/cbb/isp/user/sensor/hi3516cv610/common/sensor_common.h
+@@ -64,8 +64,6 @@ extern "C" {
+         }                                                          \
+     } while (0)
+ 
+-#define SENSOR_MODE_MAX 2
+-
+ /* common I2C bus config */
+ #define I2C_DEV_FILE_NUM     16
+ #define I2C_BUF_NUM          8
+@@ -83,18 +81,6 @@ typedef struct {
+     ot_isp_awb_sensor_register awb_register;
+ } cis_register;
+ 
+-typedef struct {
+-    td_u32      ver_lines;
+-    td_u32      max_ver_lines;
+-    td_float    max_fps;
+-    td_float    min_fps;
+-    td_u32      width;
+-    td_u32      height;
+-    td_u8       sns_mode;
+-    ot_wdr_mode wdr_mode;
+-    const char *mode_name;
+-} cis_video_mode_tbl;
+-
+ typedef struct {
+     td_s32 fd;
+     td_u32 addr;

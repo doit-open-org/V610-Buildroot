@@ -1,0 +1,102 @@
+#!/bin/sh
+
+CONFIG_FILE=/etc/touch-driver.conf
+BOARD_IO_KO=/drv/ko/ot_board_io_cfg.ko
+MODULE_DIR=/drv/ko/extdrv
+
+if [ ! -r "$CONFIG_FILE" ]; then
+	echo "touch_driver_ctl: missing $CONFIG_FILE" >&2
+	exit 1
+fi
+
+. "$CONFIG_FILE"
+
+module_is_loaded()
+{
+	grep -q "^$1 " /proc/modules
+}
+
+# True when the device tree has an enabled node compatible with $1. The SD
+# card device tree (see sdio1-pins) has neither the panel nor the touch.
+device_present()
+{
+	for f in $(find /proc/device-tree/ -name compatible 2>/dev/null); do
+		tr '\0' '\n' < "$f" | grep -qxF "$1" || continue
+		status=$(tr -d '\0' < "${f%/compatible}/status" 2>/dev/null)
+		[ -z "$status" ] || [ "$status" = okay ] && return 0
+	done
+	return 1
+}
+
+load_driver()
+{
+	if module_is_loaded "$TOUCH_DRIVER"; then
+		return 0
+	fi
+	if ! device_present "$TOUCH_COMPATIBLE"; then
+		echo "touch_driver_ctl: no $TOUCH_CONTROLLER in the device tree" >&2
+		return 1
+	fi
+	if ! module_is_loaded board_io_cfg; then
+		[ -f "$BOARD_IO_KO" ] || {
+			echo "touch_driver_ctl: missing $BOARD_IO_KO" >&2
+			return 1
+		}
+		insmod "$BOARD_IO_KO" || return 1
+	fi
+	[ -f "$MODULE_DIR/$TOUCH_MODULE.ko" ] || {
+		echo "touch_driver_ctl: missing $MODULE_DIR/$TOUCH_MODULE.ko" >&2
+		return 1
+	}
+	insmod "$MODULE_DIR/$TOUCH_MODULE.ko"
+}
+
+unload_driver()
+{
+	if module_is_loaded "$TOUCH_DRIVER"; then
+		rmmod "$TOUCH_DRIVER"
+	fi
+}
+
+show_status()
+{
+	if module_is_loaded "$TOUCH_DRIVER"; then
+		state=loaded
+	else
+		state="not loaded"
+	fi
+	echo "driver=$TOUCH_DRIVER vendor=$TOUCH_VENDOR" \
+		"controller=$TOUCH_CONTROLLER resolution=${TOUCH_WIDTH}x${TOUCH_HEIGHT} state=$state"
+}
+
+show_usage()
+{
+	echo "Usage: $0 {start|stop|restart|status|present}" >&2
+}
+
+case "${1:-start}" in
+	start)
+		[ "$#" -le 1 ] || { show_usage; exit 2; }
+		load_driver
+		;;
+	stop)
+		[ "$#" -eq 1 ] || { show_usage; exit 2; }
+		unload_driver
+		;;
+	restart)
+		[ "$#" -eq 1 ] || { show_usage; exit 2; }
+		unload_driver && load_driver
+		;;
+	status)
+		[ "$#" -eq 1 ] || { show_usage; exit 2; }
+		show_status
+		;;
+	present)
+		[ "$#" -eq 1 ] || { show_usage; exit 2; }
+		device_present "$TOUCH_COMPATIBLE"
+		;;
+	*)
+		show_usage
+		exit 2
+		;;
+esac

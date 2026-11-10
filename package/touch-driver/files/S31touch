@@ -1,0 +1,8 @@
+#!/bin/sh
+
+# Nothing to load when the running device tree has no such device, as in SD
+# card mode (see sdio1-pins).
+if [ "${1:-start}" = start ] && ! /usr/sbin/touch_driver_ctl present; then
+	exit 0
+fi
+exec /usr/sbin/touch_driver_ctl "$@"

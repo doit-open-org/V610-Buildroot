@@ -1,0 +1,73 @@
+/dts-v1/;
+
+/*
+ * The LCD and the SD card slot share the SDIO1 pins, so the board has one
+ * device tree for each, plus one with neither. U-Boot boots conf-${sdio1_pins}; see post-image.sh.
+ */
+
+/ {
+	description = "Linux Kernel";
+	#address-cells = <1>;
+
+	images {
+		fdt-lcd {
+			description = "dtb: SPI LCD and touch";
+			data = /incbin/("./devicetree-lcd.dtb");
+			type = "flat_dt";
+			arch = "arm";
+			compression = "none";
+			load = <0x40000000>;
+		};
+
+		fdt-sd {
+			description = "dtb: SD card";
+			data = /incbin/("./devicetree-sd.dtb");
+			type = "flat_dt";
+			arch = "arm";
+			compression = "none";
+			load = <0x40000000>;
+		};
+
+		fdt-none {
+			description = "dtb: no LCD, no SD card";
+			data = /incbin/("./devicetree-none.dtb");
+			type = "flat_dt";
+			arch = "arm";
+			compression = "none";
+			load = <0x40000000>;
+		};
+
+		linux_kernel {
+			description = "Linux";
+			data = /incbin/("./zImage");
+			type = "kernel";
+			arch = "arm";
+			os = "Linux";
+			compression = "none";
+			load = <0x40018000>;
+			entry = <0x40018000>;
+		};
+	};
+
+	configurations {
+		default = "conf-lcd";
+		conf-lcd {
+			description = "Linux, SPI LCD and touch";
+			kernel = "linux_kernel";
+			fdt = "fdt-lcd";
+			loadables = "linux_kernel", "fdt-lcd";
+		};
+		conf-sd {
+			description = "Linux, SD card";
+			kernel = "linux_kernel";
+			fdt = "fdt-sd";
+			loadables = "linux_kernel", "fdt-sd";
+		};
+		conf-none {
+			description = "Linux, no LCD, no SD card";
+			kernel = "linux_kernel";
+			fdt = "fdt-none";
+			loadables = "linux_kernel", "fdt-none";
+		};
+	};
+};

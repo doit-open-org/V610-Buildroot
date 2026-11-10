@@ -1,0 +1,8 @@
+prefix=/usr
+libdir=${prefix}/lib
+
+Name: hisi-mpp-media
+Description: Hi3516CV610 MPP video pipeline: VI, ISP, VPSS, VENC (sensor libraries not included, add -lsns_<model>)
+Version: 1.0.0
+Requires: hisi-mpp
+Libs: -L${libdir} -lss_mpi_ae -lss_mpi_isp -lot_mpi_isp -lss_mpi_awb -ldehaze -lextend_stats -ldrc -lldci -lbnr -lcalcflicker -lir_auto -lacs -lot_vi -lot_vpss -lot_vgs -lot_vpp -lot_sensor_i2c -lot_isp -lot_venc -lot_rc -lot_h264e -lot_h265e -lot_svac3e -lot_jpege -lot_rgn -lstdc++

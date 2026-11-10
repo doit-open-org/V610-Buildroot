@@ -1,0 +1,42 @@
+config BR2_PACKAGE_AIC8800D_SDIO
+	bool "aic8800d-sdio (AIC8800D80 SDIO Wi-Fi/BLE)"
+	depends on BR2_LINUX_KERNEL
+	depends on BR2_PACKAGE_HISI_OSDRV # bspmm, for the SDIO0 pin mux
+	select BR2_PACKAGE_WPA_SUPPLICANT
+	select BR2_PACKAGE_WPA_SUPPLICANT_NL80211
+	select BR2_PACKAGE_WPA_SUPPLICANT_CLI
+	help
+	  AICSemi AIC8800D80 SDIO Wi-Fi driver (vendor SDK V5.0) for
+	  the module fitted on SDIO0 of the Cove-610, with its
+	  firmware and start-up scripts.
+
+	  /etc/init.d/S51wireless sets the SDIO0 pin mux, loads the
+	  modules and brings wlan0 up. It does not connect: edit
+	  /etc/wireless/wpa_supplicant.conf and run
+	  "wifi-service start".
+
+if BR2_PACKAGE_AIC8800D_SDIO
+
+config BR2_PACKAGE_AIC8800D_SDIO_BLE
+	bool "BLE over SDIO"
+	depends on BR2_USE_WCHAR # bluez5_utils
+	depends on BR2_TOOLCHAIN_HAS_THREADS # bluez5_utils
+	depends on BR2_USE_MMU # bluez5_utils
+	depends on !BR2_STATIC_LIBS # bluez5_utils
+	depends on BR2_TOOLCHAIN_HAS_SYNC_4 # bluez5_utils
+	select BR2_PACKAGE_BLUEZ5_UTILS
+	help
+	  Build the driver with its SDIO HCI transport, load the
+	  kernel Bluetooth stack and the combined Wi-Fi/BLE firmware,
+	  and install BlueZ. The controller registers as hci0.
+
+	  The kernel must have CONFIG_BT, CONFIG_CRYPTO_ECC and
+	  CONFIG_CRYPTO_ECDH built as modules.
+
+	  bluetoothd is not started at boot: use
+	  "ble-service start|stop|status".
+
+endif
+
+comment "aic8800d-sdio needs a Linux kernel and hisi-osdrv"
+	depends on !BR2_LINUX_KERNEL || !BR2_PACKAGE_HISI_OSDRV

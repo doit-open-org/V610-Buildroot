@@ -1,0 +1,12 @@
+diff --git a/soc/drivers/interdrv/sysconfig/pin_mux.c b/soc/drivers/interdrv/sysconfig/pin_mux.c
+--- a/soc/drivers/interdrv/sysconfig/pin_mux.c
++++ b/soc/drivers/interdrv/sysconfig/pin_mux.c
+@@ -293,7 +293,7 @@ static void vi_pin_mux(int vi_intf_type, int board_type)
+         case VI_MIPI_RX_MODE:
+             i2c_pin_mux(PIN_MUX_I2C_0);
+             i2c_pin_mux(PIN_MUX_I2C_1);
+-            i2c_pin_mux(PIN_MUX_I2C_2);
++            /* board: I2C2 shares SDIO1 card-detect and power-enable pins. */
+             mipi_rx_pin_mux(MIPI_RX_0);
+             break;
+         case VI_CMOS_BT1120_MODE:

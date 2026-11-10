@@ -1,0 +1,14 @@
+diff -Nur a/samples/mpp/Makefile.param b/samples/mpp/Makefile.param
+--- a/samples/mpp/Makefile.param
++++ b/samples/mpp/Makefile.param
+@@ -123,6 +123,10 @@
+ CFLAGS += -DSENSOR0_TYPE=$(SENSOR0_TYPE)
+ CFLAGS += -DSENSOR1_TYPE=$(SENSOR1_TYPE)
+ CFLAGS += -DBOARD_TYPE=$(BOARD_TYPE)
++# Keep __FILE__ and assertion strings independent from the host workspace.
++SDK_SOURCE_ROOT := $(abspath $(CURDIR)/../../..)
++CFLAGS += -ffile-prefix-map=$(SDK_SOURCE_ROOT)=Hi3516CV610
++CFLAGS += -fmacro-prefix-map=$(SDK_SOURCE_ROOT)=Hi3516CV610
+ 
+ ifeq ($(MEM_SHARE), y)
+ 	CFLAGS += -DSAMPLE_MEM_SHARE_ENABLE

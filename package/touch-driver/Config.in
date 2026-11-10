@@ -1,0 +1,28 @@
+config BR2_PACKAGE_TOUCH_DRIVER
+	bool "touch-driver (FT6336U touchscreen driver)"
+	depends on BR2_LINUX_KERNEL
+	select BR2_PACKAGE_BOARD_IO_CFG
+	help
+	  Driver for the FocalTech FT6336U touch controller of the
+	  Cove-610 LCD module. The source is the kernel's own
+	  edt-ft5x06.c, built as an external module so that it is
+	  loaded after the board pin configuration, with
+	  touch_driver_ctl and /etc/touch-driver.conf.
+
+	  The controller wiring is described in
+	  board/cove_610/dts/touch_config.dtsi.
+
+if BR2_PACKAGE_TOUCH_DRIVER
+
+config BR2_PACKAGE_TOUCH_DRIVER_AUTOLOAD
+	bool "load the driver at boot"
+	default y
+	help
+	  Install /etc/init.d/S31touch. Without it a program loads the
+	  driver with "touch_driver_ctl start" when it needs touch
+	  input.
+
+endif
+
+comment "touch-driver needs a Linux kernel"
+	depends on !BR2_LINUX_KERNEL

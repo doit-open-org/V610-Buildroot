@@ -1,0 +1,68 @@
+GC4023: make the I2C device address configurable
+
+Add the sensor object callback that sets the device address, so that two
+GC4023 sensors strapped to different addresses can be used at the same
+time.
+
+--- a/soc/drivers/mpp/cbb/isp/user/sensor/hi3516cv610/galaxycore_gc4023/gc4023_cmos.c
++++ b/soc/drivers/mpp/cbb/isp/user/sensor/hi3516cv610/galaxycore_gc4023/gc4023_cmos.c
+@@ -34,6 +34,7 @@
+              },
+         },
+         .i2c.fd = -1,
++        .i2c.addr = GC4023_I2C_ADDR,
+     }
+ };
+ 
+@@ -111,6 +112,16 @@
+     return &g_gc4023_info[vi_pipe];
+ }
+ 
++static td_s32 cmos_set_sensor_dev_addr(ot_vi_pipe vi_pipe, td_u32 i2c_addr)
++{
++    cis_info *cis = cmos_get_info(vi_pipe);
++    if (cis == TD_NULL || i2c_addr < 0x06 || i2c_addr > 0xEE || (i2c_addr & 1U) != 0U) {
++        return TD_FAILURE;
++    }
++    cis->i2c.addr = i2c_addr;
++    return TD_SUCCESS;
++}
++
+ static ot_isp_sns_state *cmos_get_state(ot_vi_pipe vi_pipe)
+ {
+     if (vi_pipe < 0 || vi_pipe >= OT_ISP_MAX_PIPE_NUM) {
+@@ -714,7 +725,7 @@
+ 
+     for (i = 0; i < sns_state->regs_info[0].reg_num; i++) {
+         sns_state->regs_info[0].i2c_data[i].update = TD_TRUE;
+-        sns_state->regs_info[0].i2c_data[i].dev_addr = GC4023_I2C_ADDR;
++        sns_state->regs_info[0].i2c_data[i].dev_addr = cis->i2c.addr;
+         sns_state->regs_info[0].i2c_data[i].addr_byte_num = GC4023_ADDR_BYTE;
+         sns_state->regs_info[0].i2c_data[i].data_byte_num = GC4023_DATA_BYTE;
+     }
+@@ -889,7 +900,6 @@
+     sensor_state = cis->sns_state;
+     sns_check_pointer_void_return(sensor_state);
+ 
+-    cis->i2c.addr = GC4023_I2C_ADDR;
+     cis->i2c.addr_byte_num = GC4023_ADDR_BYTE;
+     cis->i2c.data_byte_num = GC4023_DATA_BYTE;
+ 
+@@ -954,6 +964,7 @@
+ static td_void cmos_isp_set_pixel_detect(ot_vi_pipe vi_pipe, td_bool enable)
+ {
+     sns_check_pipe_void_return(vi_pipe);
++    ot_unused(enable);
+ 
+     return;
+ }
+@@ -1125,7 +1136,8 @@
+     .pfn_read_reg              = cmos_read_register,
+     .pfn_set_bus_info          = cmos_set_bus_info,
+     .pfn_set_init              = cmos_set_init,
+-    .pfn_get_sns_info          = cmos_get_sns_info
++    .pfn_get_sns_info          = cmos_get_sns_info,
++    .pfn_set_dev_addr          = cmos_set_sensor_dev_addr
+ };
+ 
+ ot_isp_sns_obj *gc4023_get_obj(td_void)

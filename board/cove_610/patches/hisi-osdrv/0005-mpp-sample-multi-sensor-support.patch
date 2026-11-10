@@ -1,0 +1,1276 @@
+diff -Nur a/samples/mpp/Makefile.param b/samples/mpp/Makefile.param
+--- a/samples/mpp/Makefile.param	2026-10-08 16:09:33.457616842 +0800
++++ b/samples/mpp/Makefile.param	2026-10-08 16:10:29.228778809 +0800
+@@ -5,12 +5,23 @@
+ endif
+ 
+ ################# select sensor type for your sample ###############################
+-####    HY006_3814_0011_MIPI_4M_30FPS_10BIT    #################
+-####    HY006_3814_0011_MIPI_3M_30FPS_10BIT    #################
+-####    HY006_3814_0011_MIPI_2M_30FPS_10BIT    #################
++####    HY006_3814_0011_MIPI_4M_30FPS_10BIT     #################
++####    HY006_3814_0011_MIPI_3M_30FPS_10BIT     #################
++####    HY006_3814_0011_MIPI_2M_30FPS_10BIT     #################
++####    SC4336P_MIPI_4M_30FPS_10BIT             #################
++####    OS04D10_MIPI_4M_30FPS_10BIT             #################
++####    GC4023_MIPI_4M_30FPS_10BIT              #################
++####    SC431HAI_MIPI_4M_30FPS_10BIT            #################
++####    SC431HAI_MIPI_4M_30FPS_10BIT_WDR2TO1    #################
++####    SC450AI_MIPI_4M_30FPS_10BIT             #################
++####    SC450AI_MIPI_4M_30FPS_10BIT_WDR2TO1     #################
++####    SC500AI_MIPI_5M_30FPS_10BIT             #################
++####    SC500AI_MIPI_5M_30FPS_10BIT_WDR2TO1     #################
++####    SC4336P_MIPI_3M_30FPS_10BIT             #################
++####    SC4336P_MIPI_2M_30FPS_10BIT             #################
+ 
+-SENSOR0_TYPE ?= HY006_3814_0011_MIPI_4M_30FPS_10BIT
+-SENSOR1_TYPE ?= HY006_3814_0011_MIPI_4M_30FPS_10BIT
++SENSOR0_TYPE ?= SC500AI_MIPI_5M_30FPS_10BIT
++SENSOR1_TYPE ?= SC500AI_MIPI_5M_30FPS_10BIT
+ 
+ ################# select board type for your sample ###############################
+ ####    DMEB_BGA            	#################
+@@ -44,6 +55,12 @@
+ MPI_LIBS += $(REL_LIB)/libir_auto.a
+ MPI_LIBS += $(REL_LIB)/libacs.a
+ MPI_LIBS += $(REL_LIB)/libsns_hy006_3814_0011.a
++MPI_LIBS += $(REL_LIB)/libsns_sc4336p.a
++MPI_LIBS += $(REL_LIB)/libsns_gc4023.a
++MPI_LIBS += $(REL_LIB)/libsns_os04d10.a
++MPI_LIBS += $(REL_LIB)/libsns_sc431hai.a
++MPI_LIBS += $(REL_LIB)/libsns_sc450ai.a
++MPI_LIBS += $(REL_LIB)/libsns_sc500ai.a
+ ifeq ($(CONFIG_OT_ISP_THERMO_SUPPORT),y)
+ MPI_LIBS += $(REL_LIB)/libss_mpi_thermo.a
+ endif
+@@ -205,4 +222,4 @@
+ USER_SPACE_LIBS += -l$(KO_PREFIX)_piris
+ USER_SPACE_LIBS += -lsvp_acl
+ endif
+-MPI_LIBS += $(USER_SPACE_LIBS)
+\ No newline at end of file
++MPI_LIBS += $(USER_SPACE_LIBS)
+diff -Nur a/samples/mpp/common/sample_comm.h b/samples/mpp/common/sample_comm.h
+--- a/samples/mpp/common/sample_comm.h	2026-10-08 16:09:33.457616842 +0800
++++ b/samples/mpp/common/sample_comm.h	2026-10-08 16:10:16.111632613 +0800
+@@ -81,6 +81,8 @@
+ #define SAMPLE_AUDIO_POINT_NUM_PER_FRAME 480
+ #define SAMPLE_AUDIO_AI_USER_FRAME_DEPTH 5
+ 
++#define SAMPLE_SENSOR_MAX_NUM 2
++
+ #define WDR_MAX_PIPE_NUM 4
+ 
+ #define CHN_NUM_PRE_DEV            4
+@@ -121,6 +123,9 @@
+ 
+ #define ACODEC_FILE "/dev/acodec"
+ 
++#define ES8388_FILE "/dev/es8388"
++#define ES8388_CHIP_ID 0
++
+ #define SAMPLE_FRAME_BUF_RATIO_MAX 100
+ #define SAMPLE_FRAME_BUF_RATIO_MIN 70
+ #define SAMPLE_FRAME_BUF_RATIO_DEFAULT 75
+@@ -237,6 +242,17 @@
+     HY006_3814_0011_MIPI_4M_30FPS_10BIT_WDR2TO1,
+     HY006_3814_0011_MIPI_3M_30FPS_10BIT,
+     HY006_3814_0011_MIPI_2M_30FPS_10BIT,
++    SC4336P_MIPI_4M_30FPS_10BIT,
++    OS04D10_MIPI_4M_30FPS_10BIT,
++    GC4023_MIPI_4M_30FPS_10BIT,
++    SC431HAI_MIPI_4M_30FPS_10BIT,
++    SC431HAI_MIPI_4M_30FPS_10BIT_WDR2TO1,
++    SC450AI_MIPI_4M_30FPS_10BIT,
++    SC450AI_MIPI_4M_30FPS_10BIT_WDR2TO1,
++    SC500AI_MIPI_5M_30FPS_10BIT,
++    SC500AI_MIPI_5M_30FPS_10BIT_WDR2TO1,
++    SC4336P_MIPI_3M_30FPS_10BIT,
++    SC4336P_MIPI_2M_30FPS_10BIT,
+     SNS_TYPE_BUTT,
+ } sample_sns_type;
+ 
+@@ -603,7 +619,9 @@
+ td_s32 sample_comm_isp_get_pub_attr_by_sns(sample_sns_type sns_type, ot_isp_pub_attr *pub_attr);
+ ot_isp_sns_type sample_comm_get_sns_bus_type(sample_sns_type sns_type);
+ ot_isp_sns_obj *sample_comm_isp_get_sns_obj(sample_sns_type sns_type);
++ot_isp_sns_obj *sample_comm_isp_get_sns_obj_new(sample_sns_type sns_type);
+ td_void sample_comm_vi_get_size_by_sns_type(sample_sns_type sns_type, ot_size *size);
++td_void sample_comm_vi_get_full_lines_std_by_sns_type(sample_sns_type sns_type, td_u32 *full_lines_std);
+ td_void sample_comm_vi_get_default_vi_cfg(sample_sns_type sns_type, sample_vi_cfg *vi_cfg);
+ td_void sample_comm_vi_get_vi_cfg_by_fmu_mode(sample_sns_type sns_type, ot_fmu_mode fum_mode, sample_vi_cfg *vi_cfg);
+ td_void sample_comm_vi_init_vi_cfg(sample_sns_type sns_type, ot_size *size, sample_vi_cfg *vi_cfg);
+@@ -717,6 +735,8 @@
+ td_s32 sample_comm_audio_stop_adec(ot_adec_chn ad_chn);
+ td_s32 sample_comm_audio_cfg_acodec(const ot_aio_attr *aio_attr);
+ 
++void sample_comm_vi_set_sns_type(sample_sns_type sns_type, td_u32 index);
++sample_sns_type sample_comm_vi_get_sns_type(td_u32 index);
+ td_void sample_comm_vi_get_default_sns_info(sample_sns_type sns_type, sample_sns_info *sns_info);
+ td_void sample_comm_vi_get_default_pipe_info(sample_sns_type sns_type, ot_vi_bind_pipe *bind_pipe,
+                                              sample_vi_pipe_info pipe_info[]);
+diff -Nur a/samples/mpp/common/sample_comm_isp.c b/samples/mpp/common/sample_comm_isp.c
+--- a/samples/mpp/common/sample_comm_isp.c	2026-10-08 16:09:33.457616842 +0800
++++ b/samples/mpp/common/sample_comm_isp.c	2026-10-08 16:10:16.111632613 +0800
+@@ -108,6 +108,192 @@
+     },
+ };
+ 
++static ot_isp_pub_attr g_isp_pub_attr_sc4336p_mipi_4m_30fps = {
++    { 0, 0, 2560, 1440 },
++    { 2560, 1440 },
++    30,
++    OT_ISP_BAYER_BGGR,
++    OT_WDR_MODE_NONE,
++    0,
++    1,
++    0,
++    {
++        0,
++        { 0, 0, 2560, 1440 },
++    },
++};
++
++static ot_isp_pub_attr g_isp_pub_attr_sc4336p_mipi_3m_30fps = {
++    { 0, 0, 2304, 1296 },
++    { 2304, 1296 },
++    30,
++    OT_ISP_BAYER_BGGR,
++    OT_WDR_MODE_NONE,
++    0,
++    1,
++    0,
++    {
++        0,
++        { 0, 0, 2304, 1296 },
++    },
++};
++
++static ot_isp_pub_attr g_isp_pub_attr_sc4336p_mipi_2m_30fps = {
++    { 0, 0, 1920, 1080 },
++    { 1920, 1080 },
++    30,
++    OT_ISP_BAYER_BGGR,
++    OT_WDR_MODE_NONE,
++    0,
++    0,
++    0,
++    {
++        0,
++        { 0, 0, 1920, 1080 },
++    },
++};
++
++static ot_isp_pub_attr g_isp_pub_attr_os04d10_mipi_4m_30fps = {
++    { 0, 0, 2560, 1440 },
++    { 2560, 1440 },
++    30,
++    OT_ISP_BAYER_BGGR,
++    OT_WDR_MODE_NONE,
++    0,
++    0,
++    0,
++    {
++        0,
++        { 0, 0, 2560, 1440 },
++    },
++};
++
++static ot_isp_pub_attr g_isp_pub_attr_sc431hai_mipi_4m_30fps = {
++    {0, 0, 2560, 1440},
++    { 2560, 1440 },
++    30,
++    OT_ISP_BAYER_RGGB,
++    OT_WDR_MODE_NONE,
++    0,
++    0,
++    0,
++    {
++        0,
++        {0, 0, 2560, 1440},
++    },
++};
++
++static ot_isp_pub_attr g_isp_pub_attr_sc431hai_mipi_4m_30fps_wdr2to1 = {
++    {0, 0, 2560, 1440},
++    { 2560, 1440 },
++    30,
++    OT_ISP_BAYER_RGGB,
++    OT_WDR_MODE_2To1_LINE,
++    0,
++    0,
++    0,
++    {
++        0,
++        {0, 0, 2560, 1440},
++    },
++};
++
++static ot_isp_pub_attr g_isp_pub_attr_sc450ai_mipi_4m_30fps = {
++    {0, 0, 2688, 1520},
++    { 2688, 1520 },
++    30,
++    OT_ISP_BAYER_RGGB,
++    OT_WDR_MODE_NONE,
++    0,
++    0,
++    0,
++    {
++        0,
++        {0, 0, 2688, 1520},
++    },
++};
++
++static ot_isp_pub_attr g_isp_pub_attr_sc450ai_mipi_4m_30fps_wdr2to1 = {
++    {0, 0, 2688, 1520},
++    { 2688, 1520 },
++    30,
++    OT_ISP_BAYER_RGGB,
++    OT_WDR_MODE_2To1_LINE,
++    0,
++    0,
++    0,
++    {
++        0,
++        {0, 0, 2688, 1520},
++    },
++};
++
++static ot_isp_pub_attr g_isp_pub_attr_sc500ai_mipi_5m_30fps = {
++    {0, 0, 2880, 1620},
++    { 2880, 1620 },
++    30,
++    OT_ISP_BAYER_BGGR,
++    OT_WDR_MODE_NONE,
++    0,
++    0,
++    0,
++    {
++        0,
++        {0, 0, 2880, 1620},
++    },
++};
++
++static ot_isp_pub_attr g_isp_pub_attr_sc500ai_mipi_5m_30fps_wdr2to1 = {
++    {0, 0, 2880, 1620},
++    { 2880, 1620 },
++    30,
++    OT_ISP_BAYER_BGGR,
++    OT_WDR_MODE_2To1_LINE,
++    0,
++    0,
++    0,
++    {
++        0,
++        {0, 0, 2880, 1620},
++    },
++};
++
++static ot_isp_pub_attr g_isp_pub_attr_gc4023_mipi_4m_30fps = {
++    { 0, 0, 2560, 1440 },
++    { 2560, 1440 },
++    30,
++    OT_ISP_BAYER_RGGB,
++    OT_WDR_MODE_NONE,
++    0,
++    0,
++    0,
++    {
++        0,
++        { 0, 0, 2560, 1440 },
++    },
++};
++
++td_void sample_comm_isp_get_pub_attr_by_sns_part1(sample_sns_type sns_type, ot_isp_pub_attr *pub_attr)
++{
++    switch (sns_type) {
++        case SC500AI_MIPI_5M_30FPS_10BIT:
++            (td_void)memcpy_s(pub_attr, sizeof(ot_isp_pub_attr),
++                &g_isp_pub_attr_sc500ai_mipi_5m_30fps, sizeof(ot_isp_pub_attr));
++            break;
++        case SC500AI_MIPI_5M_30FPS_10BIT_WDR2TO1:
++            (td_void)memcpy_s(pub_attr, sizeof(ot_isp_pub_attr),
++                &g_isp_pub_attr_sc500ai_mipi_5m_30fps_wdr2to1, sizeof(ot_isp_pub_attr));
++            break;
++        case OS04D10_MIPI_4M_30FPS_10BIT:
++            (td_void)memcpy_s(pub_attr, sizeof(ot_isp_pub_attr),
++                &g_isp_pub_attr_os04d10_mipi_4m_30fps, sizeof(ot_isp_pub_attr));
++            break;
++
++        default:
++            break;
++    }
++}
++
+ td_s32 sample_comm_isp_get_pub_attr_by_sns(sample_sns_type sns_type, ot_isp_pub_attr *pub_attr)
+ {
+     switch (sns_type) {
+@@ -127,13 +313,45 @@
+             (td_void)memcpy_s(pub_attr, sizeof(ot_isp_pub_attr),
+                 &g_isp_pub_attr_hy006_3814_0011_mipi_2m_30fps, sizeof(ot_isp_pub_attr));
+             break;
++        case SC4336P_MIPI_4M_30FPS_10BIT:
++            (td_void)memcpy_s(pub_attr, sizeof(ot_isp_pub_attr),
++                &g_isp_pub_attr_sc4336p_mipi_4m_30fps, sizeof(ot_isp_pub_attr));
++            break;
++        case SC4336P_MIPI_3M_30FPS_10BIT:
++            (td_void)memcpy_s(pub_attr, sizeof(ot_isp_pub_attr),
++                &g_isp_pub_attr_sc4336p_mipi_3m_30fps, sizeof(ot_isp_pub_attr));
++            break;
++        case SC4336P_MIPI_2M_30FPS_10BIT:
++            (td_void)memcpy_s(pub_attr, sizeof(ot_isp_pub_attr),
++                &g_isp_pub_attr_sc4336p_mipi_2m_30fps, sizeof(ot_isp_pub_attr));
++            break;
++        case GC4023_MIPI_4M_30FPS_10BIT:
++            (td_void)memcpy_s(pub_attr, sizeof(ot_isp_pub_attr),
++                &g_isp_pub_attr_gc4023_mipi_4m_30fps, sizeof(ot_isp_pub_attr));
++            break;
++        case SC431HAI_MIPI_4M_30FPS_10BIT:
++            (td_void)memcpy_s(pub_attr, sizeof(ot_isp_pub_attr),
++                &g_isp_pub_attr_sc431hai_mipi_4m_30fps, sizeof(ot_isp_pub_attr));
++            break;
++        case SC431HAI_MIPI_4M_30FPS_10BIT_WDR2TO1:
++            (td_void)memcpy_s(pub_attr, sizeof(ot_isp_pub_attr),
++                &g_isp_pub_attr_sc431hai_mipi_4m_30fps_wdr2to1, sizeof(ot_isp_pub_attr));
++            break;
++        case SC450AI_MIPI_4M_30FPS_10BIT:
++            (td_void)memcpy_s(pub_attr, sizeof(ot_isp_pub_attr),
++                &g_isp_pub_attr_sc450ai_mipi_4m_30fps, sizeof(ot_isp_pub_attr));
++            break;
++        case SC450AI_MIPI_4M_30FPS_10BIT_WDR2TO1:
++            (td_void)memcpy_s(pub_attr, sizeof(ot_isp_pub_attr),
++                &g_isp_pub_attr_sc450ai_mipi_4m_30fps_wdr2to1, sizeof(ot_isp_pub_attr));
++            break;
+ 
+         default:
+             (td_void)memcpy_s(pub_attr, sizeof(ot_isp_pub_attr),
+-                &g_isp_pub_attr_hy006_3814_0011_mipi_4m_30fps, sizeof(ot_isp_pub_attr));
++                &g_isp_pub_attr_sc4336p_mipi_4m_30fps, sizeof(ot_isp_pub_attr));
+             break;
+-}
+-
++    }
++    sample_comm_isp_get_pub_attr_by_sns_part1(sns_type, pub_attr);
+     return TD_SUCCESS;
+ }
+ 
+@@ -153,6 +371,73 @@
+         case HY006_3814_0011_MIPI_2M_30FPS_10BIT:
+             return &g_sns_hy006_3814_0011_obj;
+ #endif
++#ifdef SC4336P_MIPI_4M_30FPS_10BIT_SELECT
++        case SC4336P_MIPI_4M_30FPS_10BIT:
++            return &g_sns_sc4336p_obj;
++#endif
++#ifdef SC4336P_MIPI_3M_30FPS_10BIT_SELECT
++        case SC4336P_MIPI_3M_30FPS_10BIT:
++            return &g_sns_sc4336p_obj;
++#endif
++#ifdef SC4336P_MIPI_2M_30FPS_10BIT_SELECT
++        case SC4336P_MIPI_2M_30FPS_10BIT:
++            return &g_sns_sc4336p_obj;
++#endif
++#ifdef GC4023_MIPI_4M_30FPS_10BIT_SELECT
++        case GC4023_MIPI_4M_30FPS_10BIT:
++            return &g_sns_gc4023_obj;
++#endif
++#ifdef OS04D10_MIPI_4M_30FPS_10BIT_SELECT
++        case OS04D10_MIPI_4M_30FPS_10BIT:
++            return &g_sns_os04d10_obj;
++#endif
++#ifdef SC431HAI_MIPI_4M_30FPS_10BIT_SELECT
++        case SC431HAI_MIPI_4M_30FPS_10BIT:
++        case SC431HAI_MIPI_4M_30FPS_10BIT_WDR2TO1:
++            return &g_sns_sc431hai_obj;
++#endif
++#ifdef SC450AI_MIPI_4M_30FPS_10BIT_SELECT
++        case SC450AI_MIPI_4M_30FPS_10BIT:
++        case SC450AI_MIPI_4M_30FPS_10BIT_WDR2TO1:
++            return &g_sns_sc450ai_obj;
++#endif
++#ifdef SC500AI_MIPI_5M_30FPS_10BIT_SELECT
++        case SC500AI_MIPI_5M_30FPS_10BIT:
++        case SC500AI_MIPI_5M_30FPS_10BIT_WDR2TO1:
++            return &g_sns_sc500ai_obj;
++#endif
++        default:
++            return TD_NULL;
++    }
++}
++
++ot_isp_sns_obj *sample_comm_isp_get_sns_obj_new(sample_sns_type sns_type)
++{
++    switch (sns_type) {
++        case HY006_3814_0011_MIPI_4M_30FPS_10BIT:
++        case HY006_3814_0011_MIPI_4M_30FPS_10BIT_WDR2TO1:
++        case HY006_3814_0011_MIPI_3M_30FPS_10BIT:
++        case HY006_3814_0011_MIPI_2M_30FPS_10BIT:
++            return &g_sns_hy006_3814_0011_obj;
++        case SC4336P_MIPI_4M_30FPS_10BIT:
++            return &g_sns_sc4336p_obj;
++        case SC4336P_MIPI_3M_30FPS_10BIT:
++            return &g_sns_sc4336p_obj;
++        case SC4336P_MIPI_2M_30FPS_10BIT:
++            return &g_sns_sc4336p_obj;
++        case GC4023_MIPI_4M_30FPS_10BIT:
++            return &g_sns_gc4023_obj;
++        case OS04D10_MIPI_4M_30FPS_10BIT:
++            return &g_sns_os04d10_obj;
++        case SC431HAI_MIPI_4M_30FPS_10BIT:
++        case SC431HAI_MIPI_4M_30FPS_10BIT_WDR2TO1:
++            return &g_sns_sc431hai_obj;
++        case SC450AI_MIPI_4M_30FPS_10BIT:
++        case SC450AI_MIPI_4M_30FPS_10BIT_WDR2TO1:
++            return &g_sns_sc450ai_obj;
++        case SC500AI_MIPI_5M_30FPS_10BIT:
++        case SC500AI_MIPI_5M_30FPS_10BIT_WDR2TO1:
++            return &g_sns_sc500ai_obj;
+         default:
+             return TD_NULL;
+     }
+@@ -175,7 +460,7 @@
+     ot_isp_3a_alg_lib awb_lib;
+     ot_isp_sns_obj *sns_obj;
+ 
+-    sns_obj = sample_comm_isp_get_sns_obj(sns_type);
++    sns_obj = sample_comm_isp_get_sns_obj_new(sns_type);
+     if (sns_obj == TD_NULL) {
+         printf("sensor %d not exist!\n", sns_type);
+         return TD_FAILURE;
+@@ -215,7 +500,7 @@
+     ot_isp_sns_obj *sns_obj;
+     td_s32 ret;
+ 
+-    sns_obj = sample_comm_isp_get_sns_obj(g_sns_type[isp_dev]);
++    sns_obj = sample_comm_isp_get_sns_obj_new(g_sns_type[isp_dev]);
+     if (sns_obj == TD_NULL) {
+         printf("sensor %d not exist!\n", g_sns_type[isp_dev]);
+         return TD_FAILURE;
+@@ -257,7 +542,7 @@
+     ot_isp_sns_obj    *sns_obj;
+     td_s32 ret;
+ 
+-    sns_obj = sample_comm_isp_get_sns_obj(sns_type);
++    sns_obj = sample_comm_isp_get_sns_obj_new(sns_type);
+     if (sns_obj == TD_NULL) {
+         printf("sensor %d not exist!\n", sns_type);
+         return TD_FAILURE;
+@@ -384,7 +669,7 @@
+         vi_pipe = vi_cfg->grp_info.fusion_grp_attr[i].pipe_id[0];
+         ss_mpi_isp_query_exposure_info(vi_pipe, &exp_info);
+         exposure = exp_info.exposure;
+-        sns_obj = sample_comm_isp_get_sns_obj(vi_cfg->sns_info.sns_type);
++        sns_obj = sample_comm_isp_get_sns_obj_new(vi_cfg->sns_info.sns_type);
+         if (sns_obj == TD_NULL) {
+             printf("sensor %d not exist!\n", vi_cfg->sns_info.sns_type);
+             return;
+diff -Nur a/samples/mpp/common/sample_comm_vi.c b/samples/mpp/common/sample_comm_vi.c
+--- a/samples/mpp/common/sample_comm_vi.c	2026-10-08 16:09:33.461279441 +0800
++++ b/samples/mpp/common/sample_comm_vi.c	2026-10-08 16:10:16.111632613 +0800
+@@ -55,6 +55,10 @@
+ #define MIPI_NUM 3
+ #define OB_HEIGHT_END 24
+ #define OB_HEIGHT_START 0
++#define SC4336P_FULL_LINES_STD 1500
++#define OS04D10_FULL_LINES_STD 1473
++#define SC450AI_FULL_LINES_STD 1560
++#define SC500AI_FULL_LINES_STD 1650
+ 
+ typedef struct {
+     sample_vi_user_frame_info *user_frame_info;
+@@ -62,6 +66,11 @@
+     td_u32 frame_cnt;
+ } sample_vi_send_frame_info;
+ 
++static sample_sns_type g_sns_type[SAMPLE_SENSOR_MAX_NUM] = {
++    SC4336P_MIPI_4M_30FPS_10BIT,
++    SC4336P_MIPI_4M_30FPS_10BIT
++};
++
+ static td_bool g_send_pipe_pthread = TD_FALSE;
+ static td_bool g_start_isp[OT_VI_MAX_PIPE_NUM] = {TD_FALSE};
+ 
+@@ -78,13 +87,121 @@
+     .data_rate = MIPI_DATA_RATE_X1,
+     .img_rect = {0, 0, WIDTH_2560, HEIGHT_1440},
+     .mipi_attr = {
++        DATA_TYPE_RAW_10BIT,
++        OT_MIPI_WDR_MODE_NONE,
++        {0, 1, -1, -1}
++    }
++};
++
++static combo_dev_attr_t g_mipi_2lane_chn0_sensor_hy006_3814_0011_10bit_4m_nowdr_dev0_attr = {
++    .devno = 0,
++    .input_mode = INPUT_MODE_MIPI,
++    .data_rate = MIPI_DATA_RATE_X1,
++    .img_rect = {0, 0, WIDTH_2560, HEIGHT_1440},
++    .mipi_attr = {
++        DATA_TYPE_RAW_10BIT,
++        OT_MIPI_WDR_MODE_NONE,
++        {0, 2, -1, -1}
++    }
++};
++
++static combo_dev_attr_t g_mipi_2lane_chn0_sensor_hy006_3814_0011_10bit_4m_nowdr_dev1_attr = {
++    .devno = 1,
++    .input_mode = INPUT_MODE_MIPI,
++    .data_rate = MIPI_DATA_RATE_X1,
++    .img_rect = {0, 0, WIDTH_2560, HEIGHT_1440},
++    .mipi_attr = {
++        DATA_TYPE_RAW_10BIT,
++        OT_MIPI_WDR_MODE_NONE,
++        {1, 3, -1, -1}
++    }
++};
++
++static combo_dev_attr_t g_mipi_2lane_chn0_sensor_hy006_3814_0011_10bit_3m_nowdr_attr = {
++    .devno = 0,
++    .input_mode = INPUT_MODE_MIPI,
++    .data_rate = MIPI_DATA_RATE_X1,
++    .img_rect = {0, 0, WIDTH_2304, HEIGHT_1296},
++    .mipi_attr = {
++        DATA_TYPE_RAW_10BIT,
++        OT_MIPI_WDR_MODE_NONE,
++        {0, 1, -1, -1}
++    }
++};
++
++static combo_dev_attr_t g_mipi_2lane_chn0_sensor_hy006_3814_0011_10bit_3m_nowdr_dev0_attr = {
++    .devno = 0,
++    .input_mode = INPUT_MODE_MIPI,
++    .data_rate = MIPI_DATA_RATE_X1,
++    .img_rect = {0, 0, WIDTH_2304, HEIGHT_1296},
++    .mipi_attr = {
++        DATA_TYPE_RAW_10BIT,
++        OT_MIPI_WDR_MODE_NONE,
++        {0, 2, -1, -1}
++    }
++};
++
++static combo_dev_attr_t g_mipi_2lane_chn0_sensor_hy006_3814_0011_10bit_3m_nowdr_dev1_attr = {
++    .devno = 1,
++    .input_mode = INPUT_MODE_MIPI,
++    .data_rate = MIPI_DATA_RATE_X1,
++    .img_rect = {0, 0, WIDTH_2304, HEIGHT_1296},
++    .mipi_attr = {
++        DATA_TYPE_RAW_10BIT,
++        OT_MIPI_WDR_MODE_NONE,
++        {1, 3, -1, -1}
++    }
++};
++
++static combo_dev_attr_t g_mipi_2lane_chn0_sensor_hy006_3814_0011_10bit_2m_nowdr_attr = {
++    .devno = 0,
++    .input_mode = INPUT_MODE_MIPI,
++    .data_rate = MIPI_DATA_RATE_X1,
++    .img_rect = {0, 0, WIDTH_1920, HEIGHT_1080},
++    .mipi_attr = {
++        DATA_TYPE_RAW_10BIT,
++        OT_MIPI_WDR_MODE_NONE,
++        {0, 1, -1, -1}
++    }
++};
++
++static combo_dev_attr_t g_mipi_2lane_chn0_sensor_hy006_3814_0011_10bit_2m_nowdr_dev0_attr = {
++    .devno = 0,
++    .input_mode = INPUT_MODE_MIPI,
++    .data_rate = MIPI_DATA_RATE_X1,
++    .img_rect = {0, 0, WIDTH_1920, HEIGHT_1080},
++    .mipi_attr = {
++        DATA_TYPE_RAW_10BIT,
++        OT_MIPI_WDR_MODE_NONE,
++        {0, 2, -1, -1}
++    }
++};
++
++static combo_dev_attr_t g_mipi_2lane_chn0_sensor_hy006_3814_0011_10bit_2m_nowdr_dev1_attr = {
++    .devno = 1,
++    .input_mode = INPUT_MODE_MIPI,
++    .data_rate = MIPI_DATA_RATE_X1,
++    .img_rect = {0, 0, WIDTH_1920, HEIGHT_1080},
++    .mipi_attr = {
++        DATA_TYPE_RAW_10BIT,
++        OT_MIPI_WDR_MODE_NONE,
++        {1, 3, -1, -1}
++    }
++};
++
++static combo_dev_attr_t g_mipi_2lane_chn0_sensor_sc4336p_10bit_4m_nowdr_attr = {
++    .devno = 0,
++    .input_mode = INPUT_MODE_MIPI,
++    .data_rate = MIPI_DATA_RATE_X1,
++    .img_rect = {0, 0, WIDTH_2560, HEIGHT_1440},
++    .mipi_attr = {
+         DATA_TYPE_RAW_12BIT,
+         OT_MIPI_WDR_MODE_NONE,
+         {0, 2, -1, -1}
+     }
+ };
+ 
+-static combo_dev_attr_t g_mipi_2lane_chn0_sensor_hy006_3814_0011_10bit_4m_nowdr_dev0_attr = {
++static combo_dev_attr_t g_mipi_2lane_chn0_sensor_sc4336p_10bit_4m_nowdr_dev0_attr = {
+     .devno = 0,
+     .input_mode = INPUT_MODE_MIPI,
+     .data_rate = MIPI_DATA_RATE_X1,
+@@ -96,7 +213,7 @@
+     }
+ };
+ 
+-static combo_dev_attr_t g_mipi_2lane_chn0_sensor_hy006_3814_0011_10bit_4m_nowdr_dev1_attr = {
++static combo_dev_attr_t g_mipi_2lane_chn0_sensor_sc4336p_10bit_4m_nowdr_dev1_attr = {
+     .devno = 1,
+     .input_mode = INPUT_MODE_MIPI,
+     .data_rate = MIPI_DATA_RATE_X1,
+@@ -108,7 +225,7 @@
+     }
+ };
+ 
+-static combo_dev_attr_t g_mipi_2lane_chn0_sensor_hy006_3814_0011_10bit_3m_nowdr_attr = {
++static combo_dev_attr_t g_mipi_2lane_chn0_sensor_sc4336p_10bit_3m_nowdr_attr = {
+     .devno = 0,
+     .input_mode = INPUT_MODE_MIPI,
+     .data_rate = MIPI_DATA_RATE_X1,
+@@ -120,7 +237,7 @@
+     }
+ };
+ 
+-static combo_dev_attr_t g_mipi_2lane_chn0_sensor_hy006_3814_0011_10bit_3m_nowdr_dev0_attr = {
++static combo_dev_attr_t g_mipi_2lane_chn0_sensor_sc4336p_10bit_3m_nowdr_dev0_attr = {
+     .devno = 0,
+     .input_mode = INPUT_MODE_MIPI,
+     .data_rate = MIPI_DATA_RATE_X1,
+@@ -132,7 +249,7 @@
+     }
+ };
+ 
+-static combo_dev_attr_t g_mipi_2lane_chn0_sensor_hy006_3814_0011_10bit_3m_nowdr_dev1_attr = {
++static combo_dev_attr_t g_mipi_2lane_chn0_sensor_sc4336p_10bit_3m_nowdr_dev1_attr = {
+     .devno = 1,
+     .input_mode = INPUT_MODE_MIPI,
+     .data_rate = MIPI_DATA_RATE_X1,
+@@ -144,7 +261,7 @@
+     }
+ };
+ 
+-static combo_dev_attr_t g_mipi_2lane_chn0_sensor_hy006_3814_0011_10bit_2m_nowdr_attr = {
++static combo_dev_attr_t g_mipi_2lane_chn0_sensor_sc4336p_10bit_2m_nowdr_attr = {
+     .devno = 0,
+     .input_mode = INPUT_MODE_MIPI,
+     .data_rate = MIPI_DATA_RATE_X1,
+@@ -156,7 +273,7 @@
+     }
+ };
+ 
+-static combo_dev_attr_t g_mipi_2lane_chn0_sensor_hy006_3814_0011_10bit_2m_nowdr_dev0_attr = {
++static combo_dev_attr_t g_mipi_2lane_chn0_sensor_sc4336p_10bit_2m_nowdr_dev0_attr = {
+     .devno = 0,
+     .input_mode = INPUT_MODE_MIPI,
+     .data_rate = MIPI_DATA_RATE_X1,
+@@ -168,7 +285,7 @@
+     }
+ };
+ 
+-static combo_dev_attr_t g_mipi_2lane_chn0_sensor_hy006_3814_0011_10bit_2m_nowdr_dev1_attr = {
++static combo_dev_attr_t g_mipi_2lane_chn0_sensor_sc4336p_10bit_2m_nowdr_dev1_attr = {
+     .devno = 1,
+     .input_mode = INPUT_MODE_MIPI,
+     .data_rate = MIPI_DATA_RATE_X1,
+@@ -180,15 +297,210 @@
+     }
+ };
+ 
++static combo_dev_attr_t g_mipi_2lane_chn0_sensor_os04d10_10bit_4m_nowdr_attr = {
++    .devno = 0,
++    .input_mode = INPUT_MODE_MIPI,
++    .data_rate = MIPI_DATA_RATE_X1,
++    .img_rect = {0, 0, WIDTH_2560, HEIGHT_1440},
++    .mipi_attr = {
++        DATA_TYPE_RAW_10BIT, // 12->10
++        OT_MIPI_WDR_MODE_NONE,
++        {0, 2, -1, -1}
++    }
++};
++
++static combo_dev_attr_t g_mipi_2lane_chn0_sensor_os04d10_10bit_4m_nowdr_dev0_attr = {
++    .devno = 0,
++    .input_mode = INPUT_MODE_MIPI,
++    .data_rate = MIPI_DATA_RATE_X1,
++    .img_rect = {0, 0, WIDTH_2560, HEIGHT_1440},
++    .mipi_attr = {
++        DATA_TYPE_RAW_10BIT, // 12->10
++        OT_MIPI_WDR_MODE_NONE,
++        {0, 2, -1, -1}
++    }
++};
++
++static combo_dev_attr_t g_mipi_2lane_chn0_sensor_os04d10_10bit_4m_nowdr_dev1_attr = {
++    .devno = 1,
++    .input_mode = INPUT_MODE_MIPI,
++    .data_rate = MIPI_DATA_RATE_X1,
++    .img_rect = {0, 0, WIDTH_2560, HEIGHT_1440},
++    .mipi_attr = {
++        DATA_TYPE_RAW_10BIT, // 12->10
++        OT_MIPI_WDR_MODE_NONE,
++        {1, 3, -1, -1}
++    }
++};
++
++
++static combo_dev_attr_t g_mipi_2lane_chn0_sensor_gc4023_10bit_4m_nowdr_attr = {
++    .devno = 0,
++    .input_mode = INPUT_MODE_MIPI,
++    .data_rate = MIPI_DATA_RATE_X1,
++    .img_rect = {0, 0, WIDTH_2560, HEIGHT_1440},
++    .mipi_attr = {
++        DATA_TYPE_RAW_12BIT,
++        OT_MIPI_WDR_MODE_NONE,
++        {0, 1, -1, -1}
++    }
++};
++
++static combo_dev_attr_t g_mipi_2lane_chn0_sensor_gc4023_10bit_4m_nowdr_dev0_attr = {
++    .devno = 0,
++    .input_mode = INPUT_MODE_MIPI,
++    .data_rate = MIPI_DATA_RATE_X1,
++    .img_rect = {0, 0, WIDTH_2560, HEIGHT_1440},
++    .mipi_attr = {
++        DATA_TYPE_RAW_12BIT,
++        OT_MIPI_WDR_MODE_NONE,
++        {0, 2, -1, -1}
++    }
++};
++
++static combo_dev_attr_t g_mipi_2lane_chn0_sensor_gc4023_10bit_4m_nowdr_dev1_attr = {
++    .devno = 1,
++    .input_mode = INPUT_MODE_MIPI,
++    .data_rate = MIPI_DATA_RATE_X1,
++    .img_rect = {0, 0, WIDTH_2560, HEIGHT_1440},
++    .mipi_attr = {
++        DATA_TYPE_RAW_12BIT,
++        OT_MIPI_WDR_MODE_NONE,
++        {1, 3, -1, -1}
++    }
++};
++
++static combo_dev_attr_t g_mipi_2lane_chn0_sensor_sc450ai_10bit_4m_nowdr_dev0_attr = {
++    .devno = 0,
++    .input_mode = INPUT_MODE_MIPI,
++    .data_rate = MIPI_DATA_RATE_X1,
++    .img_rect = {0, 0, WIDTH_2688, HEIGHT_1520},
++    .mipi_attr = {
++        DATA_TYPE_RAW_12BIT,
++        OT_MIPI_WDR_MODE_NONE,
++        {0, 2, -1, -1}
++    }
++};
++
++static combo_dev_attr_t g_mipi_2lane_chn0_sensor_sc450ai_10bit_4m_nowdr_dev1_attr = {
++    .devno = 1,
++    .input_mode = INPUT_MODE_MIPI,
++    .data_rate = MIPI_DATA_RATE_X1,
++    .img_rect = {0, 0, WIDTH_2688, HEIGHT_1520},
++    .mipi_attr = {
++        DATA_TYPE_RAW_12BIT,
++        OT_MIPI_WDR_MODE_NONE,
++        {1, 3, -1, -1}
++    }
++};
++
++static combo_dev_attr_t g_mipi_4lane_chn0_sensor_sc431hai_10bit_4m_nowdr_attr = {
++    .devno = 0,
++    .input_mode = INPUT_MODE_MIPI,
++    .data_rate = MIPI_DATA_RATE_X1,
++    .img_rect = {0, 0, WIDTH_2560, HEIGHT_1440},
++    .mipi_attr = {
++        DATA_TYPE_RAW_10BIT,
++        OT_MIPI_WDR_MODE_NONE,
++        {0, 1, 2, 3}
++    }
++};
++
++void sample_comm_vi_set_sns_type(sample_sns_type sns_type, td_u32 index)
++{
++    if (index >= SAMPLE_SENSOR_MAX_NUM) {
++        return;
++    }
++
++    g_sns_type[index] = sns_type;
++}
++
++sample_sns_type sample_comm_vi_get_sns_type(td_u32 index)
++{
++    if (index >= SAMPLE_SENSOR_MAX_NUM) {
++      return SC4336P_MIPI_4M_30FPS_10BIT;
++    }
++
++    return g_sns_type[index];
++}
++
++static combo_dev_attr_t g_mipi_2lane_chn0_sensor_sc450ai_10bit_4m_nowdr_attr = {
++    .devno = 0,
++    .input_mode = INPUT_MODE_MIPI,
++    .data_rate = MIPI_DATA_RATE_X1,
++    .img_rect = {0, 0, WIDTH_2688, HEIGHT_1520},
++    .mipi_attr = {
++        DATA_TYPE_RAW_10BIT,
++        OT_MIPI_WDR_MODE_NONE,
++        {0, 1, -1, -1}
++    }
++};
++
++static combo_dev_attr_t g_mipi_4lane_chn0_sensor_sc450ai_10bit_4m_nowdr_attr = {
++    .devno = 0,
++    .input_mode = INPUT_MODE_MIPI,
++    .data_rate = MIPI_DATA_RATE_X1,
++    .img_rect = {0, 0, WIDTH_2688, HEIGHT_1520},
++    .mipi_attr = {
++        DATA_TYPE_RAW_10BIT,
++        OT_MIPI_WDR_MODE_NONE,
++        {0, 1, 2, 3}
++    }
++};
++
++static combo_dev_attr_t g_mipi_4lane_chn0_sensor_sc500ai_10bit_4m_nowdr_attr = {
++    .devno = 0,
++    .input_mode = INPUT_MODE_MIPI,
++    .data_rate = MIPI_DATA_RATE_X1,
++    .img_rect = {0, 0, WIDTH_2880, HEIGHT_1620},
++    .mipi_attr = {
++        DATA_TYPE_RAW_10BIT,
++        OT_MIPI_WDR_MODE_NONE,
++        {0, 1, 2, 3}
++    }
++};
++
++static combo_dev_attr_t g_mipi_2lane_chn0_sensor_sc500ai_10bit_5m_nowdr_attr = {
++    .devno = 0,
++    .input_mode = INPUT_MODE_MIPI,
++    .data_rate = MIPI_DATA_RATE_X1,
++    .img_rect = {0, 0, WIDTH_2880, HEIGHT_1620},
++    .mipi_attr = {
++        DATA_TYPE_RAW_10BIT,
++        OT_MIPI_WDR_MODE_NONE,
++        {0, 1, -1, -1}
++    }
++};
++
++static combo_dev_attr_t g_mipi_2lane_chn0_sensor_sc500ai_10bit_5m_nowdr_dev0_attr = {
++    .devno = 0,
++    .input_mode = INPUT_MODE_MIPI,
++    .data_rate = MIPI_DATA_RATE_X1,
++    .img_rect = {0, 0, WIDTH_2880, HEIGHT_1620},
++    .mipi_attr = {
++        DATA_TYPE_RAW_12BIT,
++        OT_MIPI_WDR_MODE_NONE,
++        {0, 2, -1, -1}
++    }
++};
++
++static combo_dev_attr_t g_mipi_2lane_chn0_sensor_sc500ai_10bit_5m_nowdr_dev1_attr = {
++    .devno = 1,
++    .input_mode = INPUT_MODE_MIPI,
++    .data_rate = MIPI_DATA_RATE_X1,
++    .img_rect = {0, 0, WIDTH_2880, HEIGHT_1620},
++    .mipi_attr = {
++        DATA_TYPE_RAW_12BIT,
++        OT_MIPI_WDR_MODE_NONE,
++        {1, 3, -1, -1}
++    }
++};
++
+ /* calc online pipe sensor pixel_rate: lane_rate(Mbps) * 1000000 * lane_num / bit_num / wdr_num */
+ static td_u32 sample_comm_vi_calc_pipe_pixel_rate(td_u32 lane_rate, td_u32 lane_num, td_u32 bit_num, td_u32 wdr_num)
+ {
+     td_u32 lane_base_bps = 1000 * 1000; /* base: 1Mbps */
+-    td_u64 sensor_total_rate = 0;
+-    if ((bit_num == 0) || (wdr_num == 0)) {
+-        return 0;
+-    }
+-    sensor_total_rate = lane_rate * lane_base_bps * lane_num / bit_num;
++    td_u64 sensor_total_rate = lane_rate * lane_base_bps * lane_num / bit_num;
+     return sensor_total_rate / wdr_num;
+ }
+ 
+@@ -203,6 +515,34 @@
+         case HY006_3814_0011_MIPI_4M_30FPS_10BIT_WDR2TO1:
+             pixel_rate = sample_comm_vi_calc_pipe_pixel_rate(630, 4, 10, 2); /* 630Mbps * 4lane / 10bit / 2vc */
+             break;
++        case SC4336P_MIPI_4M_30FPS_10BIT:
++        case SC4336P_MIPI_3M_30FPS_10BIT:
++            pixel_rate = sample_comm_vi_calc_pipe_pixel_rate(630, 2, 10, 1); /* 630Mbps * 2lane / 10bit */
++            break;
++        case OS04D10_MIPI_4M_30FPS_10BIT:
++            pixel_rate = sample_comm_vi_calc_pipe_pixel_rate(720, 2, 10, 1); /* 720Mbps * 2lane / 10bit */
++            break;
++        case GC4023_MIPI_4M_30FPS_10BIT:
++            pixel_rate = sample_comm_vi_calc_pipe_pixel_rate(702, 2, 10, 1); /* 702Mbps * 2lane / 10bit */
++            break;
++        case SC431HAI_MIPI_4M_30FPS_10BIT:
++            pixel_rate = sample_comm_vi_calc_pipe_pixel_rate(315, 4, 10, 1); /* 315Mbps * 4lane / 10bit */
++            break;
++        case SC431HAI_MIPI_4M_30FPS_10BIT_WDR2TO1:
++            pixel_rate = sample_comm_vi_calc_pipe_pixel_rate(630, 4, 10, 2); /* 630Mbps * 4lane / 10bit / 2vc */
++            break;
++        case SC450AI_MIPI_4M_30FPS_10BIT:
++            pixel_rate = sample_comm_vi_calc_pipe_pixel_rate(720, 2, 10, 1); /* 720Mbps * 2lane / 10bit */
++            break;
++        case SC450AI_MIPI_4M_30FPS_10BIT_WDR2TO1:
++            pixel_rate = sample_comm_vi_calc_pipe_pixel_rate(720, 4, 10, 2); /* 720Mbps * 4lane / 10bit / 2vc */
++            break;
++        case SC500AI_MIPI_5M_30FPS_10BIT:
++            pixel_rate = sample_comm_vi_calc_pipe_pixel_rate(792, 2, 10, 1); /* 792Mbps * 2lane / 10bit */
++            break;
++        case SC500AI_MIPI_5M_30FPS_10BIT_WDR2TO1:
++            pixel_rate = sample_comm_vi_calc_pipe_pixel_rate(792, 4, 10, 2); /* 792Mbps * 4lane / 10bit / 2vc */
++            break;
+         default:
+             break;
+     }
+@@ -227,9 +567,53 @@
+             (td_void)memcpy_s(combo_attr, sizeof(combo_dev_attr_t),
+                 &g_mipi_2lane_chn0_sensor_hy006_3814_0011_10bit_2m_nowdr_attr, sizeof(combo_dev_attr_t));
+             break;
++        case SC4336P_MIPI_4M_30FPS_10BIT:
++            (td_void)memcpy_s(combo_attr, sizeof(combo_dev_attr_t),
++                &g_mipi_2lane_chn0_sensor_sc4336p_10bit_4m_nowdr_attr, sizeof(combo_dev_attr_t));
++            break;
++        case SC4336P_MIPI_3M_30FPS_10BIT:
++            (td_void)memcpy_s(combo_attr, sizeof(combo_dev_attr_t),
++                &g_mipi_2lane_chn0_sensor_sc4336p_10bit_3m_nowdr_attr, sizeof(combo_dev_attr_t));
++            break;
++        case SC4336P_MIPI_2M_30FPS_10BIT:
++            (td_void)memcpy_s(combo_attr, sizeof(combo_dev_attr_t),
++                &g_mipi_2lane_chn0_sensor_sc4336p_10bit_2m_nowdr_attr, sizeof(combo_dev_attr_t));
++            break;
++        case OS04D10_MIPI_4M_30FPS_10BIT:
++            (td_void)memcpy_s(combo_attr, sizeof(combo_dev_attr_t),
++                &g_mipi_2lane_chn0_sensor_os04d10_10bit_4m_nowdr_attr, sizeof(combo_dev_attr_t));
++            break;
++        case GC4023_MIPI_4M_30FPS_10BIT:
++            (td_void)memcpy_s(combo_attr, sizeof(combo_dev_attr_t),
++                &g_mipi_2lane_chn0_sensor_gc4023_10bit_4m_nowdr_attr, sizeof(combo_dev_attr_t));
++            break;
++        case SC431HAI_MIPI_4M_30FPS_10BIT:
++        case SC431HAI_MIPI_4M_30FPS_10BIT_WDR2TO1:
++            (td_void)memcpy_s(combo_attr, sizeof(combo_dev_attr_t),
++                &g_mipi_4lane_chn0_sensor_sc431hai_10bit_4m_nowdr_attr, sizeof(combo_dev_attr_t));
++            break;
++
++        case SC450AI_MIPI_4M_30FPS_10BIT:
++            (td_void)memcpy_s(combo_attr, sizeof(combo_dev_attr_t),
++                &g_mipi_2lane_chn0_sensor_sc450ai_10bit_4m_nowdr_attr, sizeof(combo_dev_attr_t));
++            break;
++        case SC450AI_MIPI_4M_30FPS_10BIT_WDR2TO1:
++            (td_void)memcpy_s(combo_attr, sizeof(combo_dev_attr_t),
++                &g_mipi_4lane_chn0_sensor_sc450ai_10bit_4m_nowdr_attr, sizeof(combo_dev_attr_t));
++            break;
++
++        case SC500AI_MIPI_5M_30FPS_10BIT:
++            (td_void)memcpy_s(combo_attr, sizeof(combo_dev_attr_t),
++                &g_mipi_2lane_chn0_sensor_sc500ai_10bit_5m_nowdr_attr, sizeof(combo_dev_attr_t));
++            break;
++        case SC500AI_MIPI_5M_30FPS_10BIT_WDR2TO1:
++            (td_void)memcpy_s(combo_attr, sizeof(combo_dev_attr_t),
++                &g_mipi_4lane_chn0_sensor_sc500ai_10bit_4m_nowdr_attr, sizeof(combo_dev_attr_t));
++            break;
++
+         default:
+             (td_void)memcpy_s(combo_attr, sizeof(combo_dev_attr_t),
+-                &g_mipi_2lane_chn0_sensor_hy006_3814_0011_10bit_4m_nowdr_attr, sizeof(combo_dev_attr_t));
++                &g_mipi_2lane_chn0_sensor_sc4336p_10bit_4m_nowdr_attr, sizeof(combo_dev_attr_t));
+             break;
+     }
+     combo_attr->img_rect.height = combo_attr->img_rect.height + ob_height;
+@@ -242,6 +626,14 @@
+         case HY006_3814_0011_MIPI_4M_30FPS_10BIT_WDR2TO1:
+         case HY006_3814_0011_MIPI_3M_30FPS_10BIT:
+         case HY006_3814_0011_MIPI_2M_30FPS_10BIT:
++        case SC4336P_MIPI_4M_30FPS_10BIT:
++        case SC4336P_MIPI_3M_30FPS_10BIT:
++        case SC4336P_MIPI_2M_30FPS_10BIT:
++        case GC4023_MIPI_4M_30FPS_10BIT:
++        case OS04D10_MIPI_4M_30FPS_10BIT:
++        case SC431HAI_MIPI_4M_30FPS_10BIT:
++        case SC450AI_MIPI_4M_30FPS_10BIT:
++        case SC500AI_MIPI_5M_30FPS_10BIT:
+             (td_void)memcpy_s(ext_data_attr, sizeof(ext_data_type_t),
+                 &g_mipi_ext_data_type_default_attr, sizeof(ext_data_type_t));
+             break;
+@@ -252,6 +644,34 @@
+     }
+ }
+ 
++static td_void sample_comm_vi_get_mipi_attr_by_dev_id_part1(sample_sns_type sns_type, ot_vi_dev vi_dev,
++                                                            combo_dev_attr_t *combo_attr)
++{
++    switch (sns_type) {
++        case OS04D10_MIPI_4M_30FPS_10BIT:
++            if (vi_dev == 0) {
++                (td_void)memcpy_s(combo_attr, sizeof(combo_dev_attr_t),
++                    &g_mipi_2lane_chn0_sensor_os04d10_10bit_4m_nowdr_dev0_attr, sizeof(combo_dev_attr_t));
++            } else if (vi_dev == 1) { /* dev1 */
++                (td_void)memcpy_s(combo_attr, sizeof(combo_dev_attr_t),
++                    &g_mipi_2lane_chn0_sensor_os04d10_10bit_4m_nowdr_dev1_attr, sizeof(combo_dev_attr_t));
++            }
++            break;
++        case SC500AI_MIPI_5M_30FPS_10BIT:
++            if (vi_dev == 0) {
++                (td_void)memcpy_s(combo_attr, sizeof(combo_dev_attr_t),
++                    &g_mipi_2lane_chn0_sensor_sc500ai_10bit_5m_nowdr_dev0_attr, sizeof(combo_dev_attr_t));
++            } else if (vi_dev == 1) { /* dev1 */
++                (td_void)memcpy_s(combo_attr, sizeof(combo_dev_attr_t),
++                    &g_mipi_2lane_chn0_sensor_sc500ai_10bit_5m_nowdr_dev1_attr, sizeof(combo_dev_attr_t));
++            }
++            break;
++
++        default:
++            break;
++    }
++}
++
+ static td_void sample_comm_vi_get_mipi_attr_by_dev_id(sample_sns_type sns_type, ot_vi_dev vi_dev,
+     combo_dev_attr_t *combo_attr)
+ {
+@@ -261,7 +681,7 @@
+             if (vi_dev == 0) {
+                 (td_void)memcpy_s(combo_attr, sizeof(combo_dev_attr_t),
+                     &g_mipi_2lane_chn0_sensor_hy006_3814_0011_10bit_4m_nowdr_dev0_attr, sizeof(combo_dev_attr_t));
+-            } else if (vi_dev == 1) { /* dev1 */
++            } else if (vi_dev == 1) {
+                 (td_void)memcpy_s(combo_attr, sizeof(combo_dev_attr_t),
+                     &g_mipi_2lane_chn0_sensor_hy006_3814_0011_10bit_4m_nowdr_dev1_attr, sizeof(combo_dev_attr_t));
+             }
+@@ -270,7 +690,7 @@
+             if (vi_dev == 0) {
+                 (td_void)memcpy_s(combo_attr, sizeof(combo_dev_attr_t),
+                     &g_mipi_2lane_chn0_sensor_hy006_3814_0011_10bit_3m_nowdr_dev0_attr, sizeof(combo_dev_attr_t));
+-            } else if (vi_dev == 1) { /* dev1 */
++            } else if (vi_dev == 1) {
+                 (td_void)memcpy_s(combo_attr, sizeof(combo_dev_attr_t),
+                     &g_mipi_2lane_chn0_sensor_hy006_3814_0011_10bit_3m_nowdr_dev1_attr, sizeof(combo_dev_attr_t));
+             }
+@@ -279,16 +699,62 @@
+             if (vi_dev == 0) {
+                 (td_void)memcpy_s(combo_attr, sizeof(combo_dev_attr_t),
+                     &g_mipi_2lane_chn0_sensor_hy006_3814_0011_10bit_2m_nowdr_dev0_attr, sizeof(combo_dev_attr_t));
+-            } else if (vi_dev == 1) { /* dev1 */
++            } else if (vi_dev == 1) {
+                 (td_void)memcpy_s(combo_attr, sizeof(combo_dev_attr_t),
+                     &g_mipi_2lane_chn0_sensor_hy006_3814_0011_10bit_2m_nowdr_dev1_attr, sizeof(combo_dev_attr_t));
+             }
+             break;
++        case SC4336P_MIPI_4M_30FPS_10BIT:
++            if (vi_dev == 0) {
++                (td_void)memcpy_s(combo_attr, sizeof(combo_dev_attr_t),
++                    &g_mipi_2lane_chn0_sensor_sc4336p_10bit_4m_nowdr_dev0_attr, sizeof(combo_dev_attr_t));
++            } else if (vi_dev == 1) { /* dev1 */
++                (td_void)memcpy_s(combo_attr, sizeof(combo_dev_attr_t),
++                    &g_mipi_2lane_chn0_sensor_sc4336p_10bit_4m_nowdr_dev1_attr, sizeof(combo_dev_attr_t));
++            }
++            break;
++        case SC4336P_MIPI_3M_30FPS_10BIT:
++            if (vi_dev == 0) {
++                (td_void)memcpy_s(combo_attr, sizeof(combo_dev_attr_t),
++                    &g_mipi_2lane_chn0_sensor_sc4336p_10bit_3m_nowdr_dev0_attr, sizeof(combo_dev_attr_t));
++            } else if (vi_dev == 1) { /* dev1 */
++                (td_void)memcpy_s(combo_attr, sizeof(combo_dev_attr_t),
++                    &g_mipi_2lane_chn0_sensor_sc4336p_10bit_3m_nowdr_dev1_attr, sizeof(combo_dev_attr_t));
++            }
++            break;
++        case SC4336P_MIPI_2M_30FPS_10BIT:
++            if (vi_dev == 0) {
++                (td_void)memcpy_s(combo_attr, sizeof(combo_dev_attr_t),
++                    &g_mipi_2lane_chn0_sensor_sc4336p_10bit_2m_nowdr_dev0_attr, sizeof(combo_dev_attr_t));
++            } else if (vi_dev == 1) { /* dev1 */
++                (td_void)memcpy_s(combo_attr, sizeof(combo_dev_attr_t),
++                    &g_mipi_2lane_chn0_sensor_sc4336p_10bit_2m_nowdr_dev1_attr, sizeof(combo_dev_attr_t));
++            }
++            break;
++        case GC4023_MIPI_4M_30FPS_10BIT:
++            if (vi_dev == 0) {
++                (td_void)memcpy_s(combo_attr, sizeof(combo_dev_attr_t),
++                    &g_mipi_2lane_chn0_sensor_gc4023_10bit_4m_nowdr_dev0_attr, sizeof(combo_dev_attr_t));
++            } else if (vi_dev == 1) { /* dev1 */
++                (td_void)memcpy_s(combo_attr, sizeof(combo_dev_attr_t),
++                    &g_mipi_2lane_chn0_sensor_gc4023_10bit_4m_nowdr_dev1_attr, sizeof(combo_dev_attr_t));
++            }
++            break;
++        case SC450AI_MIPI_4M_30FPS_10BIT:
++            if (vi_dev == 0) {
++                (td_void)memcpy_s(combo_attr, sizeof(combo_dev_attr_t),
++                    &g_mipi_2lane_chn0_sensor_sc450ai_10bit_4m_nowdr_dev0_attr, sizeof(combo_dev_attr_t));
++            } else if (vi_dev == 1) { /* dev1 */
++                (td_void)memcpy_s(combo_attr, sizeof(combo_dev_attr_t),
++                    &g_mipi_2lane_chn0_sensor_sc450ai_10bit_4m_nowdr_dev1_attr, sizeof(combo_dev_attr_t));
++            }
++            break;
++
+         default:
+             (td_void)memcpy_s(combo_attr, sizeof(combo_dev_attr_t),
+-                &g_mipi_2lane_chn0_sensor_hy006_3814_0011_10bit_4m_nowdr_dev0_attr, sizeof(combo_dev_attr_t));
++                &g_mipi_2lane_chn0_sensor_sc4336p_10bit_4m_nowdr_dev0_attr, sizeof(combo_dev_attr_t));
+     }
+-
++    sample_comm_vi_get_mipi_attr_by_dev_id_part1(sns_type, vi_dev, combo_attr);
+     combo_attr->img_rect.height = combo_attr->img_rect.height + ob_height;
+ }
+ 
+@@ -358,6 +824,11 @@
+     switch (sns_type) {
+         case HY006_3814_0011_MIPI_4M_30FPS_10BIT:
+         case HY006_3814_0011_MIPI_4M_30FPS_10BIT_WDR2TO1:
++        case SC4336P_MIPI_4M_30FPS_10BIT:
++        case OS04D10_MIPI_4M_30FPS_10BIT:
++        case GC4023_MIPI_4M_30FPS_10BIT:
++        case SC431HAI_MIPI_4M_30FPS_10BIT:
++        case SC431HAI_MIPI_4M_30FPS_10BIT_WDR2TO1:
+             size->width  = WIDTH_2560;
+             size->height = HEIGHT_1440;
+             break;
+@@ -371,6 +842,27 @@
+             size->height = HEIGHT_1080;
+             break;
+ 
++        case SC450AI_MIPI_4M_30FPS_10BIT:
++        case SC450AI_MIPI_4M_30FPS_10BIT_WDR2TO1:
++            size->width  = WIDTH_2688;
++            size->height = HEIGHT_1520;
++            break;
++
++        case SC500AI_MIPI_5M_30FPS_10BIT:
++        case SC500AI_MIPI_5M_30FPS_10BIT_WDR2TO1:
++            size->width  = WIDTH_2880;
++            size->height = HEIGHT_1620;
++            break;
++
++        case SC4336P_MIPI_3M_30FPS_10BIT:
++            size->width  = WIDTH_2304;
++            size->height = HEIGHT_1296;
++            break;
++        case SC4336P_MIPI_2M_30FPS_10BIT:
++            size->width  = WIDTH_1920;
++            size->height = HEIGHT_1080;
++            break;
++
+         default:
+             size->width  = WIDTH_1920;
+             size->height = HEIGHT_1080;
+@@ -378,14 +870,51 @@
+     }
+ }
+ 
++td_void sample_comm_vi_get_full_lines_std_by_sns_type(sample_sns_type sns_type, td_u32 *full_lines_std)
++{
++    switch (sns_type) {
++        case HY006_3814_0011_MIPI_4M_30FPS_10BIT:
++        case HY006_3814_0011_MIPI_4M_30FPS_10BIT_WDR2TO1:
++        case HY006_3814_0011_MIPI_3M_30FPS_10BIT:
++        case HY006_3814_0011_MIPI_2M_30FPS_10BIT:
++        case SC4336P_MIPI_4M_30FPS_10BIT:
++        case GC4023_MIPI_4M_30FPS_10BIT:
++        case SC431HAI_MIPI_4M_30FPS_10BIT:
++            *full_lines_std = SC4336P_FULL_LINES_STD;
++            break;
++        case OS04D10_MIPI_4M_30FPS_10BIT:
++            *full_lines_std = OS04D10_FULL_LINES_STD;
++            break;
++        case SC450AI_MIPI_4M_30FPS_10BIT:
++            *full_lines_std = SC450AI_FULL_LINES_STD;
++            break;
++        case SC500AI_MIPI_5M_30FPS_10BIT:
++            *full_lines_std = SC500AI_FULL_LINES_STD;
++            break;
++        default:
++            *full_lines_std = SC4336P_FULL_LINES_STD;
++            break;
++    }
++}
++
+ td_u32 sample_comm_vi_get_obheight_by_sns_type(sample_sns_type sns_type)
+ {
+     td_u32 ob_height = OB_HEIGHT_START;
+     switch (sns_type) {
+         case HY006_3814_0011_MIPI_4M_30FPS_10BIT:
+-        case HY006_3814_0011_MIPI_4M_30FPS_10BIT_WDR2TO1:
+         case HY006_3814_0011_MIPI_3M_30FPS_10BIT:
+         case HY006_3814_0011_MIPI_2M_30FPS_10BIT:
++        case SC4336P_MIPI_4M_30FPS_10BIT:
++        case SC4336P_MIPI_3M_30FPS_10BIT:
++        case SC4336P_MIPI_2M_30FPS_10BIT:
++        case GC4023_MIPI_4M_30FPS_10BIT:
++        case OS04D10_MIPI_4M_30FPS_10BIT:
++        case SC431HAI_MIPI_4M_30FPS_10BIT:
++        case SC431HAI_MIPI_4M_30FPS_10BIT_WDR2TO1:
++        case SC450AI_MIPI_4M_30FPS_10BIT:
++        case SC450AI_MIPI_4M_30FPS_10BIT_WDR2TO1:
++        case SC500AI_MIPI_5M_30FPS_10BIT:
++        case SC500AI_MIPI_5M_30FPS_10BIT_WDR2TO1:
+             ob_height = OB_HEIGHT_START;
+             break;
+         default:
+@@ -398,12 +927,19 @@
+ static td_u32 sample_comm_vi_get_pipe_num_by_sns_type(sample_sns_type sns_type)
+ {
+     switch (sns_type) {
+-        case HY006_3814_0011_MIPI_4M_30FPS_10BIT:
+-        case HY006_3814_0011_MIPI_3M_30FPS_10BIT:
+-        case HY006_3814_0011_MIPI_2M_30FPS_10BIT:
++        case SC4336P_MIPI_4M_30FPS_10BIT:
++        case SC4336P_MIPI_3M_30FPS_10BIT:
++        case SC4336P_MIPI_2M_30FPS_10BIT:
++        case SC431HAI_MIPI_4M_30FPS_10BIT:
++        case SC450AI_MIPI_4M_30FPS_10BIT:
++        case SC500AI_MIPI_5M_30FPS_10BIT:
++        case OS04D10_MIPI_4M_30FPS_10BIT:
+             return 1;
+ 
+         case HY006_3814_0011_MIPI_4M_30FPS_10BIT_WDR2TO1:
++        case SC431HAI_MIPI_4M_30FPS_10BIT_WDR2TO1:
++        case SC450AI_MIPI_4M_30FPS_10BIT_WDR2TO1:
++        case SC500AI_MIPI_5M_30FPS_10BIT_WDR2TO1:
+             return 2; /* 2: wdr2to1 */
+ 
+         default:
+@@ -417,9 +953,20 @@
+         case HY006_3814_0011_MIPI_4M_30FPS_10BIT:
+         case HY006_3814_0011_MIPI_3M_30FPS_10BIT:
+         case HY006_3814_0011_MIPI_2M_30FPS_10BIT:
++        case SC4336P_MIPI_4M_30FPS_10BIT:
++        case SC4336P_MIPI_3M_30FPS_10BIT:
++        case SC4336P_MIPI_2M_30FPS_10BIT:
++        case GC4023_MIPI_4M_30FPS_10BIT:
++        case OS04D10_MIPI_4M_30FPS_10BIT:
++        case SC431HAI_MIPI_4M_30FPS_10BIT:
++        case SC450AI_MIPI_4M_30FPS_10BIT:
++        case SC500AI_MIPI_5M_30FPS_10BIT:
+             return OT_WDR_MODE_NONE;
+ 
+         case HY006_3814_0011_MIPI_4M_30FPS_10BIT_WDR2TO1:
++        case SC431HAI_MIPI_4M_30FPS_10BIT_WDR2TO1:
++        case SC450AI_MIPI_4M_30FPS_10BIT_WDR2TO1:
++        case SC500AI_MIPI_5M_30FPS_10BIT_WDR2TO1:
+             return OT_WDR_MODE_2To1_LINE;
+ 
+         default:
+@@ -591,7 +1138,7 @@
+         pipe_info[i].pipe_attr.size.width            = size->width;
+         pipe_info[i].pipe_attr.size.height           = size->height;
+         pipe_info[i].chn_info[0].chn_attr.size.width = size->width;
+-        pipe_info[i].chn_info[0].chn_attr.size.height = size->height;
++        pipe_info[i].chn_info[0].chn_attr.size.height= size->height;
+     }
+ }
+ 
+@@ -2538,9 +3085,9 @@
+             dst += luma_stride;
+         }
+ 
+-        if (frame->pixel_format == OT_PIXEL_FORMAT_YUV_400) {
++        if (OT_PIXEL_FORMAT_YUV_400 == frame->pixel_format) {
+             return TD_SUCCESS;
+-        } else if (frame->pixel_format == OT_PIXEL_FORMAT_YVU_SEMIPLANAR_420) {
++        } else if (OT_PIXEL_FORMAT_YVU_SEMIPLANAR_420 == frame->pixel_format) {
+             chroma_height = chroma_height >> 1;
+         }
+         if (sample_comm_vi_convert_chroma_planar_to_sp42x(

@@ -1,0 +1,53 @@
+config BR2_PACKAGE_HISI_BOOT
+	bool "hisi-boot (Hi3516CV610 GSL + U-Boot boot image)"
+	depends on BR2_arm
+	depends on BR2_PACKAGE_HISI_OSDRV
+	help
+	  Builds boot_image.bin for the Hi3516CV610: the DDR/PLL
+	  register table, the GSL first stage loader and the vendor
+	  U-Boot 2022.07, packed by the vendor image tool.
+
+	  The vendor tools run with the build machine's python3, which
+	  must provide the openpyxl and pycryptodome modules.
+
+if BR2_PACKAGE_HISI_BOOT
+
+choice
+	prompt "boot medium"
+	default BR2_PACKAGE_HISI_BOOT_MEDIA_SPI_NAND
+
+config BR2_PACKAGE_HISI_BOOT_MEDIA_SPI_NAND
+	bool "SPI NAND"
+
+config BR2_PACKAGE_HISI_BOOT_MEDIA_SPI
+	bool "SPI NOR"
+
+config BR2_PACKAGE_HISI_BOOT_MEDIA_EMMC
+	bool "eMMC"
+
+endchoice
+
+config BR2_PACKAGE_HISI_BOOT_MEDIA
+	string
+	default "spi_nand" if BR2_PACKAGE_HISI_BOOT_MEDIA_SPI_NAND
+	default "spi" if BR2_PACKAGE_HISI_BOOT_MEDIA_SPI
+	default "emmc" if BR2_PACKAGE_HISI_BOOT_MEDIA_EMMC
+
+config BR2_PACKAGE_HISI_BOOT_DEBUG
+	bool "debug U-Boot configuration"
+	default y
+	help
+	  Use hi3516cv610[_emmc]_debug_defconfig: the U-Boot console
+	  stays enabled and the environment is read from flash. The
+	  release configuration embeds the environment in U-Boot and
+	  disables the boot delay.
+
+config BR2_PACKAGE_HISI_BOOT_REGBIN_XLSM
+	string "DDR/PLL register table (xlsm)"
+	default "Hi3516CV610-DMEB_4L_DDR3_2133M_128MB_16bit-A7_950M_QFN.xlsm"
+	help
+	  Name of a table under boards/dmeb/tools/pc/boot_tools in the
+	  vendor SDK, or an absolute path to a custom one. It must
+	  match the DDR part fitted on the board.
+
+endif

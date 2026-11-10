@@ -1,0 +1,110 @@
+#!/bin/sh
+
+CONFIG_FILE=/etc/lcd-driver.conf
+BOARD_IO_KO=/drv/ko/ot_board_io_cfg.ko
+MODULE_DIR=/drv/ko/extdrv
+
+if [ ! -r "$CONFIG_FILE" ]; then
+	echo "lcd_driver_ctl: missing $CONFIG_FILE" >&2
+	exit 1
+fi
+
+. "$CONFIG_FILE"
+
+module_is_loaded()
+{
+	grep -q "^$1 " /proc/modules
+}
+
+# True when the device tree has an enabled node compatible with $1. The SD
+# card device tree (see sdio1-pins) has neither the panel nor the touch.
+device_present()
+{
+	for f in $(find /proc/device-tree/ -name compatible 2>/dev/null); do
+		tr '\0' '\n' < "$f" | grep -qxF "$1" || continue
+		status=$(tr -d '\0' < "${f%/compatible}/status" 2>/dev/null)
+		[ -z "$status" ] || [ "$status" = okay ] && return 0
+	done
+	return 1
+}
+
+load_board_io()
+{
+	if module_is_loaded board_io_cfg; then
+		return 0
+	fi
+	if [ ! -f "$BOARD_IO_KO" ]; then
+		echo "lcd_driver_ctl: missing $BOARD_IO_KO" >&2
+		return 1
+	fi
+	insmod "$BOARD_IO_KO"
+}
+
+load_driver()
+{
+	if module_is_loaded "$LCD_DRIVER"; then
+		return 0
+	fi
+	if ! device_present "$LCD_COMPATIBLE"; then
+		echo "lcd_driver_ctl: no $LCD_CONTROLLER in the device tree" >&2
+		return 1
+	fi
+	if [ ! -f "$MODULE_DIR/$LCD_DRIVER.ko" ]; then
+		echo "lcd_driver_ctl: missing $MODULE_DIR/$LCD_DRIVER.ko" >&2
+		return 1
+	fi
+	load_board_io || return 1
+	insmod "$MODULE_DIR/$LCD_DRIVER.ko"
+}
+
+unload_driver()
+{
+	if module_is_loaded "$LCD_DRIVER"; then
+		rmmod "$LCD_DRIVER" || return 1
+	fi
+	if module_is_loaded board_io_cfg; then
+		rmmod board_io_cfg
+	fi
+}
+
+show_status()
+{
+	if module_is_loaded "$LCD_DRIVER"; then
+		state=loaded
+	else
+		state="not loaded"
+	fi
+	echo "driver=$LCD_DRIVER vendor=$LCD_VENDOR controller=$LCD_CONTROLLER resolution=${LCD_WIDTH}x${LCD_HEIGHT} state=$state"
+}
+
+show_usage()
+{
+	echo "Usage: $0 {start|stop|restart|status|present}" >&2
+}
+
+case "${1:-start}" in
+	start)
+		[ "$#" -le 1 ] || { show_usage; exit 2; }
+		load_driver
+		;;
+	stop)
+		[ "$#" -eq 1 ] || { show_usage; exit 2; }
+		unload_driver
+		;;
+	restart)
+		[ "$#" -eq 1 ] || { show_usage; exit 2; }
+		unload_driver && load_driver
+		;;
+	status)
+		[ "$#" -eq 1 ] || { show_usage; exit 2; }
+		show_status
+		;;
+	present)
+		[ "$#" -eq 1 ] || { show_usage; exit 2; }
+		device_present "$LCD_COMPATIBLE"
+		;;
+	*)
+		show_usage
+		exit 2
+		;;
+esac

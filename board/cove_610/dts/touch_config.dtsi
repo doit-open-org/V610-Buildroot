@@ -1,0 +1,86 @@
+// SPDX-License-Identifier: GPL-2.0-only
+/* FocalTech FT6336U touch controller on a bit-banged I2C bus. */
+
+&board_io_config {
+	touch-scl {
+		gpio-num = "GPIO0_6";
+		function = "GPIO0_6";
+		pull = "pull-up";
+		drive = "I02_level4";
+		slew = "slow";
+	};
+
+	touch-sda {
+		gpio-num = "GPIO0_7";
+		function = "GPIO0_7";
+		pull = "pull-up";
+		drive = "I02_level4";
+		slew = "slow";
+	};
+
+	touch-reset {
+		gpio-num = "GPIO1_4";
+		function = "GPIO1_4";
+		pull = "pull-up";
+		drive = "I02_level4";
+		slew = "slow";
+		init-level = <1>;
+	};
+
+	touch-interrupt {
+		gpio-num = "GPIO1_5";
+		function = "GPIO1_5";
+		pull = "pull-up";
+		drive = "I02_level4";
+		slew = "slow";
+	};
+};
+
+/ {
+	touch_vcc_3v3: regulator-touch-vcc {
+		compatible = "regulator-fixed";
+		regulator-name = "touch-vcc-3v3";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		regulator-boot-on;
+		regulator-always-on;
+	};
+};
+
+&adc {
+	status = "disabled";
+};
+
+&uart1 {
+	status = "disabled";
+};
+
+&gpio_chip1 {
+	interrupt-controller;
+	#address-cells = <0>;
+	#interrupt-cells = <2>;
+};
+
+/ {
+	touch_i2c: i2c-touch {
+		compatible = "i2c-gpio";
+		sda-gpios = <&gpio_chip0 7 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+		scl-gpios = <&gpio_chip0 6 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+		i2c-gpio,delay-us = <10>;
+		i2c-gpio,timeout-ms = <100>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		touchscreen@38 {
+			compatible = "focaltech,ft6236";
+			reg = <0x38>;
+			interrupt-parent = <&gpio_chip1>;
+			interrupts = <5 IRQ_TYPE_EDGE_FALLING>;
+			reset-gpios = <&gpio_chip1 4 GPIO_ACTIVE_LOW>;
+			vcc-supply = <&touch_vcc_3v3>;
+			touchscreen-size-x = <240>;
+			touchscreen-size-y = <320>;
+			status = "okay";
+		};
+	};
+};

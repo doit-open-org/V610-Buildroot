@@ -1,0 +1,53 @@
+#!/bin/sh
+
+SERVER=/usr/sbin/sdk_server
+SOCKET=/run/sdk_server/osal_uds_server.sock
+LOG=/tmp/sdk_server.log
+
+start_server()
+{
+    if [ ! -x "$SERVER" ]; then
+        echo "[sdk_server] executable not found, skip"
+        return 0
+    fi
+    if pidof sdk_server >/dev/null 2>&1; then
+        return 0
+    fi
+
+    rm -f "$SOCKET"
+    echo "[sdk_server] starting..."
+    LD_LIBRARY_PATH=/lib "$SERVER" >"$LOG" 2>&1 &
+}
+
+stop_server()
+{
+    pid="$(pidof sdk_server 2>/dev/null || true)"
+    [ -z "$pid" ] && return 0
+
+    kill -TERM $pid
+    for _wait in 1 2 3 4 5; do
+        pidof sdk_server >/dev/null 2>&1 || return 0
+        sleep 1
+    done
+
+    echo "[sdk_server] did not stop within 5 seconds" >&2
+    return 1
+}
+
+case "${1:-start}" in
+    start)
+        start_server
+        ;;
+    stop)
+        stop_server
+        ;;
+    restart)
+        stop_server
+        sleep 1
+        start_server
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|restart}" >&2
+        exit 2
+        ;;
+esac

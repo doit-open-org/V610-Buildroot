@@ -1,0 +1,8 @@
+menu "HiSilicon Hi3516CV610"
+	source "$BR2_EXTERNAL_CV610_PATH/package/hisi-osdrv/Config.in"
+	source "$BR2_EXTERNAL_CV610_PATH/package/hisi-boot/Config.in"
+	source "$BR2_EXTERNAL_CV610_PATH/package/aic8800d-sdio/Config.in"
+	source "$BR2_EXTERNAL_CV610_PATH/package/board-io-cfg/Config.in"
+	source "$BR2_EXTERNAL_CV610_PATH/package/lcd-driver/Config.in"
+	source "$BR2_EXTERNAL_CV610_PATH/package/touch-driver/Config.in"
+endmenu

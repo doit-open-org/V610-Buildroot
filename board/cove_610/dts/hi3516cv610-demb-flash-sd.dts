@@ -1,0 +1,29 @@
+// SPDX-License-Identifier: GPL-2.0-only
+/*
+ * Cove-610 board with the SD card slot on SDIO1 in place of the SPI LCD,
+ * which shares those pins. The SDIO1 driver sets the pin multiplexing itself.
+ * Without the LCD there is no touch panel either, so UART1 and the LSADC keep
+ * their pins.
+ */
+
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/interrupt-controller/irq.h>
+#include "hi3516cv610-demb.dts"
+#include "board_io_config.dtsi"
+
+/ {
+	model = "Doit Cove-610";
+};
+
+/* SPI NAND boot uses SDIO0 for the onboard AIC8800D Wi-Fi module. */
+&mmc0 {
+	status = "disabled";
+};
+
+&sdio0 {
+	status = "okay";
+};
+
+&sdio1 {
+	status = "okay";
+};
