@@ -51,6 +51,8 @@ define AIC8800D_SDIO_INSTALL_BLE
 		$(LINUX_DIR)/net/bluetooth/bluetooth.ko
 	$(INSTALL) -D -m 0755 $(AIC8800D_SDIO_PKGDIR)/files/ble-service \
 		$(TARGET_DIR)/usr/sbin/ble-service
+	$(INSTALL) -D -m 0644 $(AIC8800D_SDIO_PKGDIR)/files/ble-service.conf \
+		$(TARGET_DIR)/etc/bluetooth/ble-service.conf
 endef
 endif
 

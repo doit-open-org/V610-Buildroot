@@ -4,6 +4,7 @@ set -eu
 ACTION="${1:-start}"
 BLUETOOTHD=/usr/libexec/bluetooth/bluetoothd
 BLUETOOTHD_LOG=/run/ble-service-bluetoothd.log
+BLUETOOTHD_CONF=/etc/bluetooth/ble-service.conf
 DBUS_SOCKET=/var/run/dbus/system_bus_socket
 
 wait_for_process()
@@ -63,7 +64,7 @@ start_ble()
         echo "[ble-service] bluetoothd already running"
         return 0
     fi
-    "$BLUETOOTHD" -n >"$BLUETOOTHD_LOG" 2>&1 &
+    "$BLUETOOTHD" -n -f "$BLUETOOTHD_CONF" >"$BLUETOOTHD_LOG" 2>&1 &
     if ! wait_for_process bluetoothd 1; then
         echo "[ble-service] error: bluetoothd did not start" >&2
         return 1
