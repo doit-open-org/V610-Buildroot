@@ -1,0 +1,19 @@
+i2c: bsp: wait 3 ms, not 51 ms, for a bus that does not answer
+
+The driver polls with interrupts off when the bus has no interrupt (I2C1
+on the Cove-610). A device that is gone (pulled out with its pull-ups)
+made each wait run out after 1024 x 50 us, and the bus rescue as long
+again: some 155 ms with the CPU held. 64 polls is 3.2 ms, still four
+times a 34-byte message at 400 kHz.
+
+--- a/drivers/i2c/busses/i2c-bsp.c	2026-11-20 15:46:44.584075641 +0800
++++ b/drivers/i2c/busses/i2c-bsp.c	2026-11-20 15:46:44.623869969 +0800
+@@ -148,7 +148,7 @@
+ #define I2C_RXF_DEPTH		64
+ #define I2C_TXF_WATER		32
+ #define I2C_RXF_WATER		32
+-#define I2C_WAIT_TIMEOUT	0x400
++#define I2C_WAIT_TIMEOUT	0x40
+ #define I2C_IRQ_TIMEOUT		(msecs_to_jiffies(1000))
+ 
+ struct bsp_i2c_dev {
