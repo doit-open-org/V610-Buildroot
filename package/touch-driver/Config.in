@@ -1,12 +1,11 @@
 config BR2_PACKAGE_TOUCH_DRIVER
-	bool "touch-driver (FT6336U touchscreen driver)"
+	bool "touch-driver (CST836 touchscreen driver)"
 	depends on BR2_LINUX_KERNEL
 	select BR2_PACKAGE_BOARD_IO_CFG
 	help
-	  Driver for the FocalTech FT6336U touch controller of the
-	  Cove-610 LCD module. The source is the kernel's own
-	  edt-ft5x06.c, built as an external module so that it is
-	  loaded after the board pin configuration, with
+	  Driver for the Hynitron CST836 touch controller of the
+	  HXM035002 LCD module, built as an external module so that
+	  it is loaded after the board pin configuration, with
 	  touch_driver_ctl and /etc/touch-driver.conf.
 
 	  The controller wiring is described in

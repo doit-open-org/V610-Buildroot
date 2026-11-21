@@ -1,9 +1,9 @@
 config BR2_PACKAGE_LCD_DRIVER
-	bool "lcd-driver (ST7789V SPI LCD DRM driver)"
+	bool "lcd-driver (HXM035002 NV3031A SPI LCD DRM driver)"
 	depends on BR2_LINUX_KERNEL
 	select BR2_PACKAGE_BOARD_IO_CFG
 	help
-	  DRM driver for the Sitronix ST7789V 240x320 SPI LCD module
+	  DRM driver for the HXM035002 (NV3031A) 212x318 SPI LCD module
 	  of the Cove-610, built as an external kernel module, with
 	  lcd_driver_ctl to load and unload it and
 	  /etc/lcd-driver.conf describing the panel.

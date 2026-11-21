@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0+
 /*
- * DRM driver for display panels connected to a Sitronix ST7789V
+ * DRM driver for HXM035002 panels connected to a NewVision NV3031A
  * display controller in SPI mode, with TE (tearing effect) sync.
  *
  */
@@ -23,6 +23,7 @@
 #include <linux/atomic.h>
 #include <linux/delay.h>
 #include <linux/dma-buf.h>
+#include <linux/errno.h>
 #include <linux/gpio/consumer.h>
 #include <linux/ktime.h>
 #include <linux/mm.h>
@@ -33,98 +34,32 @@
 #include <linux/spi/spi.h>
 #include <video/mipi_display.h>
 
-/* ST7789V command set */
-#define ST7789_NOP			0x00
-#define ST7789_SWRESET		0x01
-#define ST7789_RDDID		0x04
-#define ST7789_RDDST		0x09
-#define ST7789_RDDPM		0x0A
-#define ST7789_RDD_MADCTL	0x0B
-#define ST7789_RDD_COLMOD	0x0C
-#define ST7789_RDDIM		0x0D
-#define ST7789_RDDSM		0x0E
-#define ST7789_RDDSR		0x0F
-#define ST7789_SLPIN		0x10
-#define ST7789_SLPOUT		0x11
-#define ST7789_PTLON		0x12
-#define ST7789_NORON		0x13
-#define ST7789_INVOFF		0x20
-#define ST7789_INVON		0x21
-#define ST7789_GAMSET		0x26
-#define ST7789_DISPOFF		0x28
-#define ST7789_DISPON		0x29
-#define ST7789_CASET		0x2A
-#define ST7789_RASET		0x2B
-#define ST7789_RAMWR		0x2C
-#define ST7789_RGBSET		0x2D
-#define ST7789_RAMRD		0x2E
-#define ST7789_PTLAR		0x30
-#define ST7789_VSCRDEF		0x33
-#define ST7789_TEOFF		0x34
-#define ST7789_TEON			0x35
-#define ST7789_MADCTL		0x36
-#define ST7789_IDMOFF		0x38
-#define ST7789_IDMON		0x39
-#define ST7789_RAMWRC		0x3C
-#define ST7789_RAMRDC		0x3E
-#define ST7789_COLMOD		0x3A
-#define ST7789_RAMCTRL		0xB0
-#define ST7789_RGBCTRL		0xB1
-#define ST7789_PORCTRL		0xB2
-#define ST7789_FRCTRL1		0xB3
-#define ST7789_PARCTRL		0xB5
-#define ST7789_GCTRL		0xB7
-#define ST7789_GTADJ		0xB8
-#define ST7789_DGMEN		0xBA
-#define ST7789_VCOMS		0xBB
-#define ST7789_LCMCTRL		0xC0
-#define ST7789_IDSET		0xC1
-#define ST7789_VDVVRHEN		0xC2
-#define ST7789_VRHS			0xC3
-#define ST7789_VDVSET		0xC4
-#define ST7789_VCMOFSET		0xC5
-#define ST7789_FRCTR2		0xC6
-#define ST7789_CABCCTRL		0xC7
-#define ST7789_REGSEL1		0xC8
-#define ST7789_REGSEL2		0xCA
-#define ST7789_PWMFRSEL		0xCC
-#define ST7789_PWCTRL1		0xD0
-#define ST7789_VAPVANEN		0xD2
-#define ST7789_CMD2EN		0xDF
-#define ST7789_PVGAMCTRL	0xE0
-#define ST7789_NVGAMCTRL	0xE1
-#define ST7789_DGMLUTR		0xE2
-#define ST7789_DGMLUTB		0xE3
-#define ST7789_GATECTRL		0xE4
-#define ST7789_SPI2EN		0xE7
-#define ST7789_PWCTRL2		0xD6
-#define ST7789_EQCTRL		0xE9
-#define ST7789_PROMCTRL		0xEC
-#define ST7789_PROMEN		0xFA
-#define ST7789_NVMSET		0xFC
-#define ST7789_PROMACT		0xFE
+#define NV3031A_MADCTL_MV	BIT(5)
+#define NV3031A_MADCTL_MX	BIT(6)
+#define NV3031A_MADCTL_MY	BIT(7)
+#define NV3031A_MAX_PARAMS	8U
 
-#define ST7789_MADCTL_BGR	BIT(3)
-#define ST7789_MADCTL_MV	BIT(5)
-#define ST7789_MADCTL_MX	BIT(6)
-#define ST7789_MADCTL_MY	BIT(7)
+#define PANEL_WIDTH  212U
+#define PANEL_HEIGHT  318U
+/* The physical active-area size is not measured yet. */
+#define PANEL_PHYS_W  0U
+#define PANEL_PHYS_H  0U
 
-#define PANEL_WIDTH   240
-#define PANEL_HEIGHT  320
-#define PANEL_PHYS_W  26
-#define PANEL_PHYS_H  30
+/* The visible area is centered in the 240-column NV3031A GRAM. */
+#define HXM035002_LEFT_OFFSET  14U
+#define HXM035002_TOP_OFFSET   0U
 
-/* pl022 DMA 要求 TX/RX 缓冲区页对齐，用 alloc_pages 保证对齐 */
+/* pl022 DMA needs page-aligned TX/RX buffers; alloc_pages guarantees this. */
 #define DMA_BUF_BYTES  (PANEL_WIDTH * PANEL_HEIGHT * 2)
 #define DMA_BUF_ORDER  get_order(DMA_BUF_BYTES)
 
 /**
- * struct st7789v_priv - per-device private data
+ * struct nv3031a_priv - per-device private data
  * @dbidev:      base mipi_dbi_dev (must be first for container_of)
  * @te_gpio:     TE signal GPIO descriptor
  * @te_sem:      semaphore signalled by TE interrupt
  * @te_active:   true after SET_TEAR_ON has been sent to the panel
- * @te_request:  true while st7789v_command() is blocked waiting for TE;
+ * @te_request:  true while nv3031a_command() is blocked waiting for TE;
  *               the ISR only calls up() when this is set, matching the
  *               isRequestFresh pattern in the reference driver
  * @first_frame: true until the very first RAMWR flush completes; the first
@@ -134,7 +69,7 @@
  * @rx_pages:    page-aligned DMA RX buffer (prevents pl022 dummypage overflow)
  * @rx_buf:      virtual address of rx_pages
  */
-struct st7789v_priv {
+struct nv3031a_priv {
 	struct mipi_dbi_dev dbidev;
 	struct gpio_desc *te_gpio;
 	struct semaphore te_sem;
@@ -151,32 +86,39 @@ struct st7789v_priv {
 	u32 stats_fps_x100;
 };
 
-static inline struct st7789v_priv *to_st7789v_priv(struct mipi_dbi_dev *dbidev)
+static inline struct nv3031a_priv *to_nv3031a_priv(struct mipi_dbi_dev *dbidev)
 {
-	return container_of(dbidev, struct st7789v_priv, dbidev);
+	return container_of(dbidev, struct nv3031a_priv, dbidev);
 }
 
-/*
- * mipi_dbi_set_window_address is static in the core, duplicate here.
- */
-static void st7789v_set_window(struct mipi_dbi_dev *dbidev,
+/* mipi_dbi_set_window_address() is static in the DRM core. */
+static int nv3031a_set_window(struct mipi_dbi_dev *dbidev,
 	unsigned int xs, unsigned int xe,
 	unsigned int ys, unsigned int ye)
 {
 	struct mipi_dbi *dbi = &dbidev->dbi;
+	int ret;
+
+	if (xs > xe || ys > ye || xe >= PANEL_WIDTH || ye >= PANEL_HEIGHT) {
+		return -EINVAL;
+	}
 
 	xs += dbidev->left_offset;
 	xe += dbidev->left_offset;
 	ys += dbidev->top_offset;
 	ye += dbidev->top_offset;
 
-	mipi_dbi_command(dbi, MIPI_DCS_SET_COLUMN_ADDRESS, (xs >> 8) & 0xff,
+	ret = mipi_dbi_command(dbi, MIPI_DCS_SET_COLUMN_ADDRESS, (xs >> 8) & 0xff,
 		xs & 0xff, (xe >> 8) & 0xff, xe & 0xff);
-	mipi_dbi_command(dbi, MIPI_DCS_SET_PAGE_ADDRESS, (ys >> 8) & 0xff,
+	if (ret) {
+		return ret;
+	}
+
+	return mipi_dbi_command(dbi, MIPI_DCS_SET_PAGE_ADDRESS, (ys >> 8) & 0xff,
 		ys & 0xff, (ye >> 8) & 0xff, ye & 0xff);
 }
 
-static int st7789v_spi_transfer(struct st7789v_priv *priv,
+static int nv3031a_spi_transfer(struct nv3031a_priv *priv,
 	struct spi_device *spi, u32 speed_hz,
 	u8 bpw, const void *buf, size_t len)
 {
@@ -189,11 +131,31 @@ static int st7789v_spi_transfer(struct st7789v_priv *priv,
 	size_t chunk;
 	int ret;
 
-	max_chunk = ALIGN_DOWN(max_chunk, 2);
+	if (!len) {
+		return 0;
+	}
+	if (!buf || !priv->rx_buf) {
+		return -EINVAL;
+	}
+	if (len > DMA_BUF_BYTES) {
+		return -EMSGSIZE;
+	}
+	if (bpw == 16U) {
+		if (len & 1U) {
+			return -EINVAL;
+		}
+		max_chunk = ALIGN_DOWN(max_chunk, 2U);
+	}
+	if (!max_chunk) {
+		return -EINVAL;
+	}
 
-	/* pl022 需在 device 级更新 bpw，仅改 transfer 级无效 */
+	/* pl022 needs the device-wide word size, not only transfer->bits_per_word. */
 	spi->bits_per_word = bpw;
-	spi_setup(spi);
+	ret = spi_setup(spi);
+	if (ret) {
+		return ret;
+	}
 
 	while (len) {
 		chunk = min(len, max_chunk);
@@ -203,7 +165,7 @@ static int st7789v_spi_transfer(struct st7789v_priv *priv,
 		buf = (const char *)buf + chunk;
 		len -= chunk;
 
-		/* 每次 spi_sync 前重新初始化，避免 DMA 描述符复用 */
+		/* Reinitialize every message to avoid reusing DMA descriptors. */
 		spi_message_init_with_transfers(&m, &tr, 1);
 		ret = spi_sync(spi, &m);
 		if (ret) {
@@ -214,18 +176,22 @@ static int st7789v_spi_transfer(struct st7789v_priv *priv,
 	return 0;
 }
 
-static int st7789v_command(struct mipi_dbi *dbi, u8 *cmd, u8 *par, size_t num)
+static int nv3031a_command(struct mipi_dbi *dbi, u8 *cmd, u8 *par, size_t num)
 {
 	struct spi_device *spi = dbi->spi;
 	struct mipi_dbi_dev *dbidev = container_of(dbi, struct mipi_dbi_dev, dbi);
-	struct st7789v_priv *priv = to_st7789v_priv(dbidev);
-	unsigned int bpw = 8;
+	struct nv3031a_priv *priv = to_nv3031a_priv(dbidev);
+	u8 bpw = 8;
 	u32 speed_hz;
 	int ret;
 
+	if (!cmd || (num && !par)) {
+		return -EINVAL;
+	}
+
 	gpiod_set_value_cansleep(dbi->dc, 0);
 	speed_hz = mipi_dbi_spi_cmd_max_speed(spi, 1);
-	ret = st7789v_spi_transfer(priv, spi, speed_hz, 8, cmd, 1);
+	ret = nv3031a_spi_transfer(priv, spi, speed_hz, 8, cmd, 1);
 	if (ret || !num) {
 		return ret;
 	}
@@ -251,15 +217,12 @@ static int st7789v_command(struct mipi_dbi *dbi, u8 *cmd, u8 *par, size_t num)
 
 	gpiod_set_value_cansleep(dbi->dc, 1);
 	speed_hz = mipi_dbi_spi_cmd_max_speed(spi, num);
-	if (*cmd == MIPI_DCS_WRITE_MEMORY_START)
-		return st7789v_spi_transfer(priv, spi, speed_hz, bpw, par, num);
-
-	return st7789v_spi_transfer(priv, spi, speed_hz, bpw, par, num);
+	return nv3031a_spi_transfer(priv, spi, speed_hz, bpw, par, num);
 }
 
-static irqreturn_t st7789v_te_isr(int irq, void *dev_id)
+static irqreturn_t nv3031a_te_isr(int irq, void *dev_id)
 {
-	struct st7789v_priv *priv = dev_id;
+	struct nv3031a_priv *priv = dev_id;
 
 	atomic_inc(&priv->te_edge_count);
 	if (priv->te_request) {
@@ -269,7 +232,7 @@ static irqreturn_t st7789v_te_isr(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
-static void st7789v_record_update(struct st7789v_priv *priv)
+static void nv3031a_record_update(struct nv3031a_priv *priv)
 {
 	u64 now_ns = ktime_get_ns();
 	u64 elapsed_ns;
@@ -291,7 +254,7 @@ static void st7789v_record_update(struct st7789v_priv *priv)
 static ssize_t display_stats_show(struct device *dev,
 	struct device_attribute *attribute, char *buf)
 {
-	struct st7789v_priv *priv = dev_get_drvdata(dev);
+	struct nv3031a_priv *priv = dev_get_drvdata(dev);
 	unsigned long flags;
 	u32 fps_x100;
 
@@ -308,19 +271,35 @@ static ssize_t display_stats_show(struct device *dev,
 }
 static DEVICE_ATTR_RO(display_stats);
 
-static void st7789v_fb_dirty(struct drm_framebuffer *fb, struct drm_rect *rect)
+static void nv3031a_fb_dirty(struct drm_framebuffer *fb, struct drm_rect *rect)
 {
-	struct mipi_dbi_dev *dbidev = drm_to_mipi_dbi_dev(fb->dev);
-	struct mipi_dbi *dbi = &dbidev->dbi;
-	struct st7789v_priv *priv = to_st7789v_priv(dbidev);
-	unsigned int height = rect->y2 - rect->y1;
-	unsigned int width = rect->x2 - rect->x1;
+	struct mipi_dbi_dev *dbidev;
+	struct mipi_dbi *dbi;
+	struct nv3031a_priv *priv;
+	unsigned int height;
+	unsigned int width;
 	int idx;
 	int ret = 0;
 
-	if (WARN_ON(!fb)) {
+	if (WARN_ON(!fb || !rect)) {
 		return;
 	}
+	if (rect->x1 < 0 || rect->y1 < 0 || rect->x2 <= rect->x1 ||
+		rect->y2 <= rect->y1 || rect->x2 > fb->width || rect->y2 > fb->height) {
+		drm_err_once(fb->dev, "Invalid framebuffer damage rectangle\n");
+		return;
+	}
+
+	width = (unsigned int)(rect->x2 - rect->x1);
+	height = (unsigned int)(rect->y2 - rect->y1);
+	if (width > PANEL_WIDTH || height > PANEL_HEIGHT) {
+		drm_err_once(fb->dev, "Framebuffer damage exceeds panel dimensions\n");
+		return;
+	}
+
+	dbidev = drm_to_mipi_dbi_dev(fb->dev);
+	dbi = &dbidev->dbi;
+	priv = to_nv3031a_priv(dbidev);
 
 	if (!drm_dev_enter(fb->dev, &idx)) {
 		return;
@@ -332,14 +311,15 @@ static void st7789v_fb_dirty(struct drm_framebuffer *fb, struct drm_rect *rect)
 	 */
 	ret = mipi_dbi_buf_copy(dbidev->tx_buf, fb, rect, false);
 	if (!ret) {
-		st7789v_set_window(dbidev, rect->x1, rect->x2 - 1,
+		ret = nv3031a_set_window(dbidev, rect->x1, rect->x2 - 1,
 			rect->y1, rect->y2 - 1);
-		ret = mipi_dbi_command_buf(dbi, MIPI_DCS_WRITE_MEMORY_START,
-			(u8 *)dbidev->tx_buf,
-			width * height * 2);
+		if (!ret) {
+			ret = mipi_dbi_command_buf(dbi, MIPI_DCS_WRITE_MEMORY_START,
+				(u8 *)dbidev->tx_buf, width * height * 2U);
+		}
 	}
 	if (!ret)
-		st7789v_record_update(priv);
+		nv3031a_record_update(priv);
 	if (ret) {
 		drm_err_once(fb->dev, "Failed to update display %d\n", ret);
 	}
@@ -347,7 +327,7 @@ static void st7789v_fb_dirty(struct drm_framebuffer *fb, struct drm_rect *rect)
 	drm_dev_exit(idx);
 }
 
-static void st7789v_enable_flush(struct mipi_dbi_dev *dbidev,
+static void nv3031a_enable_flush(struct mipi_dbi_dev *dbidev,
 	struct drm_plane_state *plane_state)
 {
 	struct drm_framebuffer *fb = plane_state->fb;
@@ -363,7 +343,7 @@ static void st7789v_enable_flush(struct mipi_dbi_dev *dbidev,
 		return;
 	}
 
-	st7789v_fb_dirty(fb, &rect);
+	nv3031a_fb_dirty(fb, &rect);
 	if (dbidev->backlight) {
 		backlight_enable(dbidev->backlight);
 	}
@@ -371,43 +351,120 @@ static void st7789v_enable_flush(struct mipi_dbi_dev *dbidev,
 	drm_dev_exit(idx);
 }
 
-static void st7789v_init(struct mipi_dbi *dbi)
+struct nv3031a_init_command {
+	u8 command;
+	u8 data_len;
+	u8 data[NV3031A_MAX_PARAMS];
+};
+
+/*
+ * This table is the register/data order from the supplied HXM035002 NV3031A
+ * initialization file. EXIT_SLEEP_MODE and SET_DISPLAY_ON are sent below so
+ * their required delays remain explicit.
+ */
+static const struct nv3031a_init_command nv3031a_vendor_init[] = {
+	/* Private access and analog settings. */
+	{ .command = 0xfd, .data_len = 2, .data = { 0x06, 0x08 } },
+	{ .command = 0x61, .data_len = 2, .data = { 0x07, 0x07 } },
+	{ .command = 0x73, .data_len = 1, .data = { 0x70 } },
+	{ .command = 0x73, .data_len = 1, .data = { 0x00 } },
+	{ .command = 0x62, .data_len = 3, .data = { 0x00, 0x44, 0x40 } },
+	{ .command = 0x63, .data_len = 4, .data = { 0x41, 0x03, 0x12, 0x12 } },
+	{ .command = 0x64, .data_len = 3, .data = { 0x23, 0x04, 0x03 } },
+	{ .command = 0x65, .data_len = 3, .data = { 0x09, 0x17, 0x21 } },
+	{ .command = 0x66, .data_len = 3, .data = { 0x09, 0x17, 0x21 } },
+	{ .command = 0x67, .data_len = 2, .data = { 0x21, 0x40 } },
+	{ .command = 0x68, .data_len = 4, .data = { 0x80, 0x30, 0x68, 0x50 } },
+	{ .command = 0xb1, .data_len = 3, .data = { 0x0f, 0x02, 0x02 } },
+	{ .command = 0xb4, .data_len = 1, .data = { 0x01 } },
+	{ .command = 0xb5, .data_len = 4, .data = { 0x02, 0x02, 0x0a, 0x14 } },
+	{ .command = 0xb6, .data_len = 5, .data = { 0x04, 0x01, 0x9f, 0x00, 0x02 } },
+	{ .command = 0xdf, .data_len = 1, .data = { 0x11 } },
+	{ .command = 0xe6, .data_len = 2, .data = { 0x00, 0xff } },
+	{ .command = 0xe7, .data_len = 6, .data = { 0x01, 0x04, 0x03, 0x03, 0x00, 0x12 } },
+	{ .command = 0xec, .data_len = 1, .data = { 0x54 } },
+	{ .command = 0xe8, .data_len = 3, .data = { 0x00, 0x70, 0x00 } },
+
+	/* Gamma 2.2. */
+	{ .command = 0xe0, .data_len = 8, .data = { 0x06, 0x01, 0x0f, 0x16,
+		0x08, 0x0e, 0x06, 0x0f } },
+	{ .command = 0xe3, .data_len = 8, .data = { 0x38, 0x18, 0x15, 0x19,
+		0x16, 0x0f, 0x08, 0x06 } },
+	{ .command = 0xe1, .data_len = 2, .data = { 0x02, 0x2c } },
+	{ .command = 0xe4, .data_len = 2, .data = { 0x50, 0x02 } },
+	{ .command = 0xe2, .data_len = 6, .data = { 0x06, 0x01, 0x00, 0x11,
+		0x13, 0x3a } },
+	{ .command = 0xe5, .data_len = 6, .data = { 0x3c, 0x13, 0x12, 0x01,
+		0x01, 0x06 } },
+
+	/* TE, SPI interface, private lock, and standard DCS setup. */
+	{ .command = 0xf1, .data_len = 3, .data = { 0x01, 0x01, 0x20 } },
+	{ .command = 0xf6, .data_len = 4, .data = { 0x01, 0x30, 0x00, 0x00 } },
+	{ .command = 0xfd, .data_len = 2, .data = { 0xfa, 0xfc } },
+	{ .command = MIPI_DCS_SET_PIXEL_FORMAT, .data_len = 1, .data = { 0x55 } },
+	{ .command = MIPI_DCS_SET_TEAR_ON, .data_len = 1, .data = { 0x00 } },
+	{ .command = MIPI_DCS_SET_ADDRESS_MODE, .data_len = 1, .data = { 0x00 } },
+	{ .command = MIPI_DCS_ENTER_INVERT_MODE, .data_len = 0 },
+};
+
+static int nv3031a_write_vendor_init(struct mipi_dbi *dbi)
 {
-	mipi_dbi_command(dbi, ST7789_MADCTL, 0x00);
-	mipi_dbi_command(dbi, ST7789_COLMOD, 0x05);
-	mipi_dbi_command(dbi, ST7789_RAMCTRL, 0x00, 0xe0);
+	size_t index;
+	int ret;
 
-	mipi_dbi_command(dbi, ST7789_PORCTRL, 0x0c, 0x0c, 0x00, 0x33, 0x33);
-	mipi_dbi_command(dbi, ST7789_GCTRL, 0x02);
-	mipi_dbi_command(dbi, ST7789_VCOMS, 0x19);
-	mipi_dbi_command(dbi, ST7789_LCMCTRL, 0x2c);
-	mipi_dbi_command(dbi, ST7789_VDVVRHEN, 0x01);
-	mipi_dbi_command(dbi, ST7789_VRHS, 0x13);
-	mipi_dbi_command(dbi, ST7789_FRCTR2, 0x0f);
-	mipi_dbi_command(dbi, ST7789_PWCTRL1, 0xa7);
-	mipi_dbi_command(dbi, ST7789_PWCTRL1, 0xa4, 0xa1);
-	mipi_dbi_command(dbi, ST7789_PWCTRL2, 0xa1);
+	for (index = 0; index < ARRAY_SIZE(nv3031a_vendor_init); index++) {
+		const struct nv3031a_init_command *entry = &nv3031a_vendor_init[index];
 
-	mipi_dbi_command(dbi, ST7789_PVGAMCTRL,
-		0xf0, 0x0f, 0x16, 0x07, 0x08, 0x25, 0x36,
-		0x54, 0x4b, 0x37, 0x13, 0x13, 0x2e, 0x35);
-	mipi_dbi_command(dbi, ST7789_NVGAMCTRL,
-		0xf0, 0x10, 0x14, 0x08, 0x06, 0x23, 0x35,
-		0x44, 0x4a, 0x38, 0x10, 0x10, 0x2c, 0x33);
+		if (entry->data_len > ARRAY_SIZE(entry->data)) {
+			return -EINVAL;
+		}
+		if (entry->data_len) {
+			ret = mipi_dbi_command_stackbuf(dbi, entry->command, entry->data,
+				entry->data_len);
+		} else {
+			ret = mipi_dbi_command(dbi, entry->command);
+		}
+		if (ret) {
+			dev_err(&dbi->spi->dev,
+				"NV3031A init command 0x%02x at index %zu failed: %d\n",
+				entry->command, index, ret);
+			return ret;
+		}
+	}
 
-	mipi_dbi_command(dbi, ST7789_INVON);
-	mipi_dbi_command(dbi, ST7789_CASET, 0x00, 0x00, 0x00, 0xef);
-	mipi_dbi_command(dbi, ST7789_RASET, 0x00, 0x00, 0x01, 0x3f);
+	return 0;
 }
 
-static void st7789v_pipe_enable(struct drm_simple_display_pipe *pipe,
+static int nv3031a_set_address_mode(struct mipi_dbi_dev *dbidev)
+{
+	u8 addr_mode;
+
+	switch (dbidev->rotation) {
+	case 90:
+		addr_mode = NV3031A_MADCTL_MX | NV3031A_MADCTL_MV;
+		break;
+	case 180:
+		addr_mode = NV3031A_MADCTL_MX | NV3031A_MADCTL_MY;
+		break;
+	case 270:
+		addr_mode = NV3031A_MADCTL_MV | NV3031A_MADCTL_MY;
+		break;
+	default:
+		addr_mode = 0x00;
+		break;
+	}
+
+	return mipi_dbi_command(&dbidev->dbi, MIPI_DCS_SET_ADDRESS_MODE,
+		addr_mode);
+}
+
+static void nv3031a_pipe_enable(struct drm_simple_display_pipe *pipe,
 	struct drm_crtc_state *crtc_state,
 	struct drm_plane_state *plane_state)
 {
 	struct mipi_dbi_dev *dbidev = drm_to_mipi_dbi_dev(pipe->crtc.dev);
-	struct st7789v_priv *priv = to_st7789v_priv(dbidev);
+	struct nv3031a_priv *priv = to_nv3031a_priv(dbidev);
 	struct mipi_dbi *dbi = &dbidev->dbi;
-	u8 addr_mode;
 	int ret;
 	int idx;
 
@@ -415,26 +472,36 @@ static void st7789v_pipe_enable(struct drm_simple_display_pipe *pipe,
 		return;
 	}
 
-	ret = mipi_dbi_poweron_conditional_reset(dbidev);
-	if (ret < 0) {
+	priv->te_active = false;
+	priv->te_request = false;
+	priv->first_frame = true;
+
+	ret = mipi_dbi_poweron_reset(dbidev);
+	if (ret) {
+		dev_err(&dbi->spi->dev, "NV3031A reset failed: %d\n", ret);
 		goto out_exit;
 	}
-	if (ret == 1) {
-		goto out_enable;
+
+	ret = nv3031a_write_vendor_init(dbi);
+	if (ret) {
+		goto out_exit;
 	}
 
-	mipi_dbi_command(dbi, ST7789_SLPOUT);
-	msleep(120);
-	st7789v_init(dbi);
-
-	if (priv->te_gpio) {
-		mipi_dbi_command(dbi, MIPI_DCS_SET_TEAR_ON, 0x00);
-		mipi_dbi_command(dbi, MIPI_DCS_SET_TEAR_SCANLINE, 0x00, 0x00);
+	ret = mipi_dbi_command(dbi, MIPI_DCS_EXIT_SLEEP_MODE);
+	if (ret) {
+		dev_err(&dbi->spi->dev, "NV3031A sleep exit failed: %d\n", ret);
+		goto out_exit;
 	}
+	msleep(200);
 
-	mipi_dbi_command(dbi, ST7789_DISPON);
-	/* Count edges only while SPI is idle, so a floating TE line cannot mistake
-	 * SPI crosstalk for a valid panel sync waveform. */
+	ret = mipi_dbi_command(dbi, MIPI_DCS_SET_DISPLAY_ON);
+	if (ret) {
+		dev_err(&dbi->spi->dev, "NV3031A display-on failed: %d\n", ret);
+		goto out_exit;
+	}
+	msleep(20);
+
+	/* Count only during SPI idle time to avoid treating crosstalk as TE. */
 	atomic_set(&priv->te_edge_count, 0);
 	msleep(120);
 	if (priv->te_gpio) {
@@ -449,34 +516,23 @@ static void st7789v_pipe_enable(struct drm_simple_display_pipe *pipe,
 		}
 	}
 
-out_enable:
-	switch (dbidev->rotation) {
-	case 90:
-		addr_mode = ST7789_MADCTL_MX | ST7789_MADCTL_MV;
-		break;
-	case 180:
-		addr_mode = ST7789_MADCTL_MX | ST7789_MADCTL_MY;
-		break;
-	case 270:
-		addr_mode = ST7789_MADCTL_MV | ST7789_MADCTL_MY;
-		break;
-	default:
-		addr_mode = 0x00;
-		break;
+	ret = nv3031a_set_address_mode(dbidev);
+	if (ret) {
+		dev_err(&dbi->spi->dev, "NV3031A address mode failed: %d\n", ret);
+		goto out_exit;
 	}
-
-	mipi_dbi_command(dbi, MIPI_DCS_SET_ADDRESS_MODE, addr_mode);
-	st7789v_enable_flush(dbidev, plane_state);
+	nv3031a_enable_flush(dbidev, plane_state);
 
 out_exit:
 	drm_dev_exit(idx);
 }
 
-static void st7789v_pipe_disable(struct drm_simple_display_pipe *pipe)
+static void nv3031a_pipe_disable(struct drm_simple_display_pipe *pipe)
 {
 	struct mipi_dbi_dev *dbidev = drm_to_mipi_dbi_dev(pipe->crtc.dev);
-	struct st7789v_priv *priv = to_st7789v_priv(dbidev);
+	struct nv3031a_priv *priv = to_nv3031a_priv(dbidev);
 	struct mipi_dbi     *dbi  = &dbidev->dbi;
+	int ret;
 
 	priv->te_active = false;
 	priv->te_request = false;
@@ -492,15 +548,21 @@ static void st7789v_pipe_disable(struct drm_simple_display_pipe *pipe)
 	 * enable's reset+init runs on an undefined state, causing
 	 * alternating black-screen issues across runs.
 	 */
-	mipi_dbi_command(dbi, MIPI_DCS_SET_DISPLAY_OFF);
+	ret = mipi_dbi_command(dbi, MIPI_DCS_SET_DISPLAY_OFF);
+	if (ret) {
+		dev_warn(&dbi->spi->dev, "NV3031A display-off failed: %d\n", ret);
+	}
 	msleep(20);
-	mipi_dbi_command(dbi, MIPI_DCS_ENTER_SLEEP_MODE);
+	ret = mipi_dbi_command(dbi, MIPI_DCS_ENTER_SLEEP_MODE);
+	if (ret) {
+		dev_warn(&dbi->spi->dev, "NV3031A sleep enter failed: %d\n", ret);
+	}
 	msleep(120);   /* SLPIN requires a wait before the next SLPOUT */
 
 	mipi_dbi_pipe_disable(pipe);
 }
 
-static void st7789v_pipe_update(struct drm_simple_display_pipe *pipe,
+static void nv3031a_pipe_update(struct drm_simple_display_pipe *pipe,
 	struct drm_plane_state *old_state)
 {
 	struct drm_plane_state *state = pipe->plane.state;
@@ -511,51 +573,51 @@ static void st7789v_pipe_update(struct drm_simple_display_pipe *pipe,
 	}
 
 	if (drm_atomic_helper_damage_merged(old_state, state, &rect)) {
-		st7789v_fb_dirty(state->fb, &rect);
+		nv3031a_fb_dirty(state->fb, &rect);
 	}
 }
 
-static const struct drm_simple_display_pipe_funcs st7789v_pipe_funcs = {
-	.enable = st7789v_pipe_enable,
-	.disable = st7789v_pipe_disable,
-	.update = st7789v_pipe_update,
+static const struct drm_simple_display_pipe_funcs nv3031a_pipe_funcs = {
+	.enable = nv3031a_pipe_enable,
+	.disable = nv3031a_pipe_disable,
+	.update = nv3031a_pipe_update,
 	.prepare_fb = drm_gem_fb_simple_display_pipe_prepare_fb,
 };
 
-static const struct drm_display_mode st7789v_mode = {
+static const struct drm_display_mode nv3031a_mode = {
 	DRM_SIMPLE_MODE(PANEL_WIDTH, PANEL_HEIGHT, PANEL_PHYS_W, PANEL_PHYS_H),
 };
 
-DEFINE_DRM_GEM_CMA_FOPS(st7789v_fops);
+DEFINE_DRM_GEM_CMA_FOPS(nv3031a_fops);
 
-static struct drm_driver st7789v_driver = {
+static struct drm_driver nv3031a_driver = {
 	.driver_features = DRIVER_GEM | DRIVER_MODESET | DRIVER_ATOMIC,
-	.fops = &st7789v_fops,
+	.fops = &nv3031a_fops,
 	DRM_GEM_CMA_DRIVER_OPS_VMAP,
 	.debugfs_init = mipi_dbi_debugfs_init,
-	.name = "st7789v",
-	.desc = "Sitronix ST7789V 240x320",
-	.date = "20211022",
+	.name = "nv3031a",
+	.desc = "HXM035002 NV3031A 212x318 DRM SPI panel driver",
+	.date = "20260921",
 	.major = 1,
 	.minor = 0,
 };
 
-static const struct of_device_id st7789v_of_match[] = {
-	{ .compatible = "sitronix,st7789v" },
+static const struct of_device_id nv3031a_of_match[] = {
+	{ .compatible = "hxm,hxm035002-nv3031a" },
 	{ },
 };
-MODULE_DEVICE_TABLE(of, st7789v_of_match);
+MODULE_DEVICE_TABLE(of, nv3031a_of_match);
 
-static const struct spi_device_id st7789v_id[] = {
-	{ "st7789v", 0 },
+static const struct spi_device_id nv3031a_id[] = {
+	{ "nv3031a", 0 },
 	{ },
 };
-MODULE_DEVICE_TABLE(spi, st7789v_id);
+MODULE_DEVICE_TABLE(spi, nv3031a_id);
 
-static int st7789v_probe(struct spi_device *spi)
+static int nv3031a_probe(struct spi_device *spi)
 {
 	struct device *dev = &spi->dev;
-	struct st7789v_priv *priv;
+	struct nv3031a_priv *priv;
 	struct mipi_dbi_dev *dbidev;
 	struct drm_device *drm;
 	struct mipi_dbi *dbi;
@@ -564,8 +626,8 @@ static int st7789v_probe(struct spi_device *spi)
 	int ret;
 	int te_irq;
 
-	priv = devm_drm_dev_alloc(dev, &st7789v_driver,
-		struct st7789v_priv, dbidev.drm);
+	priv = devm_drm_dev_alloc(dev, &nv3031a_driver,
+		struct nv3031a_priv, dbidev.drm);
 	if (IS_ERR(priv)) {
 		return PTR_ERR(priv);
 	}
@@ -586,6 +648,11 @@ static int st7789v_probe(struct spi_device *spi)
 	}
 
 	device_property_read_u32(dev, "rotation", &rotation);
+	/* The verified GRAM offset/window geometry is for the native portrait mode. */
+	if (rotation != 0) {
+		dev_err(dev, "use rotation=0; rotate the 212x318 image in the application\n");
+		return -EINVAL;
+	}
 
 	/* TE signal: get GPIO from DTS "te-gpios", configure as input */
 	sema_init(&priv->te_sem, 0);
@@ -610,10 +677,10 @@ static int st7789v_probe(struct spi_device *spi)
 		}
 
 		ret = devm_request_threaded_irq(dev, te_irq, NULL,
-			st7789v_te_isr,
+			nv3031a_te_isr,
 						IRQF_TRIGGER_FALLING |
 						IRQF_ONESHOT,
-						"st7789v-te", priv);
+						"hxm035002-nv3031a-te", priv);
 		if (ret) {
 			dev_err(dev, "Failed to request TE IRQ: %d\n", ret);
 			return ret;
@@ -639,16 +706,22 @@ static int st7789v_probe(struct spi_device *spi)
 		return ret;
 	}
 
-	dbi->command = st7789v_command;
+	dbi->command = nv3031a_command;
 
-	ret = mipi_dbi_dev_init(dbidev, &st7789v_pipe_funcs,
-		&st7789v_mode, rotation);
+	ret = mipi_dbi_dev_init(dbidev, &nv3031a_pipe_funcs,
+		&nv3031a_mode, rotation);
 	if (ret) {
 		return ret;
 	}
+	/* Keep logical coordinates aligned to the measured visible panel area. */
+	dbidev->left_offset = HXM035002_LEFT_OFFSET;
+	dbidev->top_offset = HXM035002_TOP_OFFSET;
 
-	/* TX/RX 均需页对齐：pl022 setup_dma_scatter 按 DIV_ROUND_UP(len, PAGE_SIZE)
-	 * 分配 SG 条目，非页对齐缓冲区会跨多一页导致 BUG_ON(bytesleft!=0) */
+	/*
+	 * Both buffers must be page-aligned. pl022 derives scatter-gather entries
+	 * from DIV_ROUND_UP(len, PAGE_SIZE), so an unaligned buffer can cross one
+	 * extra page and trigger BUG_ON(bytesleft != 0).
+	 */
 	priv->tx_pages = alloc_pages(GFP_KERNEL, DMA_BUF_ORDER);
 	if (!priv->tx_pages) {
 		dev_err(dev, "failed to alloc TX DMA buffer (order %u, %zu bytes)\n",
@@ -684,7 +757,7 @@ static int st7789v_probe(struct spi_device *spi)
 		dev_warn(dev, "failed to create display_stats: %d\n", ret);
 	}
 
-	dev_info(dev, "Sitronix ST7789V %dx%d probed (rotation=%u, TE %s)\n",
+	dev_info(dev, "HXM035002 NV3031A %ux%u probed (rotation=%u, TE %s)\n",
 		PANEL_WIDTH, PANEL_HEIGHT, rotation,
 		priv->te_gpio ? "wired" : "not wired");
 	return 0;
@@ -697,9 +770,9 @@ err_free_pages:
 	return ret;
 }
 
-static int st7789v_remove(struct spi_device *spi)
+static int nv3031a_remove(struct spi_device *spi)
 {
-	struct st7789v_priv *priv = spi_get_drvdata(spi);
+	struct nv3031a_priv *priv = spi_get_drvdata(spi);
 
 	device_remove_file(&spi->dev, &dev_attr_display_stats);
 	drm_dev_unplug(&priv->dbidev.drm);
@@ -718,9 +791,9 @@ static int st7789v_remove(struct spi_device *spi)
 	return 0;
 }
 
-static void st7789v_shutdown(struct spi_device *spi)
+static void nv3031a_shutdown(struct spi_device *spi)
 {
-	struct st7789v_priv *priv = spi_get_drvdata(spi);
+	struct nv3031a_priv *priv = spi_get_drvdata(spi);
 
 	drm_atomic_helper_shutdown(&priv->dbidev.drm);
 
@@ -736,18 +809,18 @@ static void st7789v_shutdown(struct spi_device *spi)
 	}
 }
 
-static struct spi_driver st7789v_spi_driver = {
+static struct spi_driver nv3031a_spi_driver = {
 	.driver = {
-		.name = "st7789v",
-		.of_match_table = st7789v_of_match,
+		.name = "nv3031a",
+		.of_match_table = nv3031a_of_match,
 	},
-	.id_table = st7789v_id,
-	.probe = st7789v_probe,
-	.remove = st7789v_remove,
-	.shutdown = st7789v_shutdown,
+	.id_table = nv3031a_id,
+	.probe = nv3031a_probe,
+	.remove = nv3031a_remove,
+	.shutdown = nv3031a_shutdown,
 };
 
-module_spi_driver(st7789v_spi_driver);
+module_spi_driver(nv3031a_spi_driver);
 
-MODULE_DESCRIPTION("Sitronix ST7789V 240x320 DRM SPI panel driver");
+MODULE_DESCRIPTION("HXM035002 NV3031A 212x318 DRM SPI panel driver");
 MODULE_LICENSE("GPL");

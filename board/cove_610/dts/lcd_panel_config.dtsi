@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-/* Sitronix ST7789V 240x320 SPI panel with PWM backlight. */
+/* HXM035002 (NV3031A) 212x318 SPI panel with PWM backlight. */
 
 &board_io_config {
 	lcd-cs {
@@ -89,9 +89,9 @@
 	/delete-node/ spidev@0;
 	/delete-node/ spidev@1;
 
-	/* Sitronix ST7789V, 240x320 */
+	/* HXM035002 NV3031A, native 212x318 portrait; rotate in the application. */
 	lcd: display@0 {
-		compatible = "sitronix,st7789v";
+		compatible = "hxm,hxm035002-nv3031a";
 		reg = <0>;
 		spi-cpha;
 		spi-cpol;

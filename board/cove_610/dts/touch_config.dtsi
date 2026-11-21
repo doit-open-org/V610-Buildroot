@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-/* FocalTech FT6336U touch controller on a bit-banged I2C bus. */
+/* Hynitron CST836 touch controller on a bit-banged I2C bus. */
 
 &board_io_config {
 	touch-scl {
@@ -71,15 +71,17 @@
 		#address-cells = <1>;
 		#size-cells = <0>;
 
-		touchscreen@38 {
-			compatible = "focaltech,ft6236";
-			reg = <0x38>;
+		touchscreen@15 {
+			compatible = "hynitron,cst836";
+			reg = <0x15>;
 			interrupt-parent = <&gpio_chip1>;
 			interrupts = <5 IRQ_TYPE_EDGE_FALLING>;
+			irq-gpios = <&gpio_chip1 5 GPIO_ACTIVE_HIGH>;
 			reset-gpios = <&gpio_chip1 4 GPIO_ACTIVE_LOW>;
 			vcc-supply = <&touch_vcc_3v3>;
-			touchscreen-size-x = <240>;
-			touchscreen-size-y = <320>;
+			touchscreen-size-x = <212>;
+			touchscreen-size-y = <318>;
+			poll-interval = <20>;
 			status = "okay";
 		};
 	};

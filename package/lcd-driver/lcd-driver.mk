@@ -22,8 +22,8 @@ endef
 endif
 
 define LCD_DRIVER_INSTALL_TARGET_CMDS
-	$(INSTALL) -D -m 0644 $(@D)/st7789v.ko $(TARGET_DIR)/drv/ko/extdrv/st7789v.ko
-	$(TARGET_STRIP) --strip-debug $(TARGET_DIR)/drv/ko/extdrv/st7789v.ko
+	$(INSTALL) -D -m 0644 $(@D)/nv3031a.ko $(TARGET_DIR)/drv/ko/extdrv/nv3031a.ko
+	$(TARGET_STRIP) --strip-debug $(TARGET_DIR)/drv/ko/extdrv/nv3031a.ko
 	$(INSTALL) -D -m 0755 $(LCD_DRIVER_PKGDIR)/files/lcd_driver_ctl \
 		$(TARGET_DIR)/usr/sbin/lcd_driver_ctl
 	$(INSTALL) -D -m 0644 $(LCD_DRIVER_PKGDIR)/files/lcd-driver.conf \

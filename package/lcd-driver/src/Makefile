@@ -1,1 +1,1 @@
-obj-m += st7789v.o
+obj-m += nv3031a.o
