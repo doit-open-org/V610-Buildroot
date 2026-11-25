@@ -1,0 +1,27 @@
+Bluetooth: set the random address while extended advertising
+
+set_random_addr() defers a new random address while advertising, so an
+advertising instance keeps the address it uses. Extended advertising sets
+have addresses of their own (LE Set Advertising Set Random Address), but
+the address is deferred all the same; an active scan, whose own address
+is random, then finds none set and is refused with Invalid HCI Command
+Parameters for as long as an advertising set runs (on the AIC8800D: no LE
+scan while BluFi advertises). Defer only for legacy advertising.
+
+--- a/net/bluetooth/hci_request.c
++++ b/net/bluetooth/hci_request.c
+@@ -2460,8 +2460,13 @@
+ 	 *
+ 	 * In this kind of scenario skip the update and let the random
+ 	 * address be updated at the next cycle.
++	 *
++	 * Extended advertising sets have addresses of their own (LE Set
++	 * Advertising Set Random Address), so advertising does not hold this
++	 * one; deferring it would leave an active scan with no random address,
++	 * refused with Invalid HCI Command Parameters.
+ 	 */
+-	if (hci_dev_test_flag(hdev, HCI_LE_ADV) ||
++	if ((!ext_adv_capable(hdev) && hci_dev_test_flag(hdev, HCI_LE_ADV)) ||
+ 	    hci_lookup_le_connect(hdev)) {
+ 		BT_DBG("Deferring random address update");
+ 		hci_dev_set_flag(hdev, HCI_RPA_EXPIRED);
