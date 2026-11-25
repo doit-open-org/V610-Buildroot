@@ -40,15 +40,17 @@ define AIC8800D_SDIO_BUILD_CMDS
 	$(LINUX_MAKE_ENV) $(MAKE) -C $(AIC8800D_SDIO_DRIVER_DIR) $(AIC8800D_SDIO_MAKE_OPTS)
 endef
 
-# S51wireless loads the kernel Bluetooth stack from the same directory as
-# the driver, and takes the presence of bluetooth.ko there as the switch
-# to the combined Wi-Fi/BLE firmware.
+# S51wireless loads the kernel Bluetooth stack (and uhid, through which
+# bluetoothd hands BLE gamepads and other HID devices to the kernel) from the
+# same directory as the driver, and takes the presence of bluetooth.ko
+# there as the switch to the combined Wi-Fi/BLE firmware.
 ifeq ($(BR2_PACKAGE_AIC8800D_SDIO_BLE),y)
 define AIC8800D_SDIO_INSTALL_BLE
 	$(INSTALL) -m 0644 -t $(TARGET_DIR)/drv/ko/extdrv \
 		$(LINUX_DIR)/crypto/ecc.ko \
 		$(LINUX_DIR)/crypto/ecdh_generic.ko \
-		$(LINUX_DIR)/net/bluetooth/bluetooth.ko
+		$(LINUX_DIR)/net/bluetooth/bluetooth.ko \
+		$(LINUX_DIR)/drivers/hid/uhid.ko
 	$(INSTALL) -D -m 0755 $(AIC8800D_SDIO_PKGDIR)/files/ble-service \
 		$(TARGET_DIR)/usr/sbin/ble-service
 	$(INSTALL) -D -m 0644 $(AIC8800D_SDIO_PKGDIR)/files/ble-service.conf \

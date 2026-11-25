@@ -30,8 +30,10 @@ config BR2_PACKAGE_AIC8800D_SDIO_BLE
 	  kernel Bluetooth stack and the combined Wi-Fi/BLE firmware,
 	  and install BlueZ. The controller registers as hci0.
 
-	  The kernel must have CONFIG_BT, CONFIG_CRYPTO_ECC and
-	  CONFIG_CRYPTO_ECDH built as modules.
+	  The kernel must have CONFIG_BT, CONFIG_CRYPTO_ECC,
+	  CONFIG_CRYPTO_ECDH and CONFIG_UHID built as modules. The
+	  controller is LE only; with BlueZ's HoG plugin, BLE gamepads
+	  show up as /dev/input/event*.
 
 	  bluetoothd is not started at boot: use
 	  "ble-service start|stop|status".

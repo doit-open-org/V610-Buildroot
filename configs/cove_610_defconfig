@@ -63,6 +63,7 @@ BR2_PACKAGE_AIC8800D_SDIO_BLE=y
 BR2_PACKAGE_LCD_DRIVER=y
 BR2_PACKAGE_TOUCH_DRIVER=y
 BR2_PACKAGE_BLUEZ5_UTILS_CLIENT=y
+BR2_PACKAGE_BLUEZ5_UTILS_PLUGINS_HOG=y
 # DRM userspace library, for applications that link it from the image.
 BR2_PACKAGE_LIBDRM=y
 # fw_printenv / fw_setenv, used by sdio1-pins to choose the device tree.

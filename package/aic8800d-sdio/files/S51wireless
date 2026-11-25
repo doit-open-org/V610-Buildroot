@@ -111,6 +111,7 @@ start_wireless()
         load_module ecc || return 1
         load_module ecdh_generic || return 1
         load_module bluetooth || return 1
+        load_module uhid || return 1
     fi
     load_module aic8800_bsp || return 1
     load_module aic8800_fdrv "aicwf_dbg_level=$AIC8800D_LOG_MASK" || return 1
